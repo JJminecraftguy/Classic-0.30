@@ -16,7 +16,6 @@
 
 package net.lax1dude.eaglercraft.internal.wasm_gc_teavm;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
@@ -25,18 +24,17 @@ import com.jcraft.jzlib.CRC32;
 import com.jcraft.jzlib.GZIPInputStream;
 import com.jcraft.jzlib.InflaterInputStream;
 
+import net.lax1dude.eaglercraft.internal.PlatformAssets;
 import net.lax1dude.eaglercraft.internal.buffer.ByteBuffer;
 import net.lax1dude.eaglercraft.internal.buffer.EaglerBufferInputStream;
-import net.lax1dude.eaglercraft.IOUtils;
-import net.peytonsound.ResourceLoader;
 
 public class EPKLoader {
 
-	public static void loadEPK(ByteBuffer epkFile, Map<String, byte[]> loadedFiles) throws IOException {
+	public static final void loadEPK(ByteBuffer epkFile, Map<String, byte[]> loadedFiles) throws IOException {
 		loadEPK(epkFile, "", loadedFiles);
 	}
 
-	public static void loadEPK(ByteBuffer epkFile, String path, Map<String, byte[]> loadedFiles) throws IOException {
+	public static final void loadEPK(ByteBuffer epkFile, String path, Map<String, byte[]> loadedFiles) throws IOException {
 		int byteLength = epkFile.remaining();
 		int l = byteLength - 16;
 		if(l < 1) {
@@ -46,7 +44,7 @@ public class EPKLoader {
 		EaglerBufferInputStream is = new EaglerBufferInputStream(epkFile);
 		
 		byte[] header = new byte[8];
-		IOUtils.readFully(is, header);
+		is.read(header);
 		String type = readASCII(header);
 		
 		if(!"EAGPKG$$".equals(type)) {
@@ -68,13 +66,13 @@ public class EPKLoader {
 			throw new IOException("Unknown or invalid EPK version: " + vers);
 		}
 		
-		IOUtils.skipFully(is, loadByte(is)); // skip filename
-		IOUtils.skipFully(is, loadShort(is)); // skip comment
-		IOUtils.skipFully(is, 8); // skip millis date
+		is.skip(is.read()); // skip filename
+		is.skip(loadShort(is)); // skip comment
+		is.skip(8); // skip millis date
 		
 		int numFiles = loadInt(is);
 		
-		char compressionType = (char)loadByte(is);
+		char compressionType = (char)is.read();
 		
 		InputStream zis;
 		switch(compressionType) {
@@ -115,11 +113,11 @@ public class EPKLoader {
 			if(i == 0) {
 				if(blockType == blockHead) {
 					byte[] readType = new byte[len];
-					IOUtils.readFully(zis, readType);
+					zis.read(readType);
 					if(!"file-type".equals(name) || !"epk/resources".equals(readASCII(readType))) {
 						throw new IOException("EPK is not of file-type 'epk/resources'!");
 					}
-					if(loadByte(zis) != '>') {
+					if(zis.read() != '>') {
 						throw new IOException("Object '" + name + "' is incomplete");
 					}
 					continue;
@@ -136,7 +134,7 @@ public class EPKLoader {
 				int expectedCRC = loadInt(zis);
 				
 				byte[] load = new byte[len - 5];
-				IOUtils.readFully(zis, load);
+				zis.read(load);
 
 				if(len > 5) {
 					crc32.reset();
@@ -146,17 +144,21 @@ public class EPKLoader {
 					}
 				}
 				
-				if(loadByte(zis) != ':') {
+				if(zis.read() != ':') {
 					throw new IOException("File '" + name + "' is incomplete");
 				}
+				
 				String s = path + name;
-				ResourceLoader.onResourceLoad(s);
+				if(s.contains("advancements") || s.contains("loot_tables") || s.contains("recipes") || s.contains("structures")) {
+					PlatformAssets.serverAssets.put(s, load);
+				}
+				
 				loadedFiles.put(s, load);
 			}else {
-				IOUtils.skipFully(zis, len);
+				zis.skip(len);
 			}
 
-			if(loadByte(zis) != '>') {
+			if(zis.read() != '>') {
 				throw new IOException("Object '" + name + "' is incomplete");
 			}
 		}
@@ -167,36 +169,28 @@ public class EPKLoader {
 		
 		zis.close();
 	}
-
-	private static int loadByte(InputStream is) throws IOException {
-		int i = is.read();
-		if (i < 0) {
-			throw new EOFException();
-		}
-		return i;
+	
+	private static final int loadShort(InputStream is) throws IOException {
+		return (is.read() << 8) | is.read();
 	}
-
-	private static int loadShort(InputStream is) throws IOException {
-		return (loadByte(is) << 8) | loadByte(is);
+	
+	private static final int loadInt(InputStream is) throws IOException {
+		return (is.read() << 24) | (is.read() << 16) | (is.read() << 8) | is.read();
 	}
-
-	private static int loadInt(InputStream is) throws IOException {
-		return (loadByte(is) << 24) | (loadByte(is) << 16) | (loadByte(is) << 8) | loadByte(is);
-	}
-
-	private static String readASCII(byte[] bytesIn) throws IOException {
+	
+	private static final String readASCII(byte[] bytesIn) throws IOException {
 		char[] charIn = new char[bytesIn.length];
 		for(int i = 0; i < bytesIn.length; ++i) {
 			charIn[i] = (char)((int)bytesIn[i] & 0xFF);
 		}
 		return new String(charIn);
 	}
-
-	private static String readASCII(InputStream bytesIn) throws IOException {
-		int len = loadByte(bytesIn);
+	
+	private static final String readASCII(InputStream bytesIn) throws IOException {
+		int len = bytesIn.read();
 		char[] charIn = new char[len];
 		for(int i = 0; i < len; ++i) {
-			charIn[i] = (char)loadByte(bytesIn);
+			charIn[i] = (char)(bytesIn.read() & 0xFF);
 		}
 		return new String(charIn);
 	}

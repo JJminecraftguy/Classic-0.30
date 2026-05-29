@@ -24,7 +24,6 @@ import java.util.Map;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.teavm.interop.Address;
 import org.teavm.interop.Import;
 import org.teavm.jso.JSBody;
 import org.teavm.jso.JSObject;
@@ -41,14 +40,14 @@ import org.teavm.jso.webaudio.MediaStream;
 import org.teavm.jso.webaudio.MediaStreamAudioDestinationNode;
 import org.teavm.jso.webaudio.PannerNode;
 
+import com.mojang.util.MathHelper;
+
+import net.lax1dude.eaglercraft.EagRuntime;
 import net.lax1dude.eaglercraft.internal.buffer.MemoryStack;
 import net.lax1dude.eaglercraft.internal.buffer.WASMGCDirectArrayConverter;
-import net.lax1dude.eaglercraft.internal.buffer.WASMGCDirectArrayCopy;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.BetterJSStringConverter;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.JOrbisAudioBufferDecoder;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.WASMGCClientConfigAdapter;
-import com.mojang.util.MathHelper;
-import net.lax1dude.eaglercraft.EagRuntime;
 
 public class PlatformAudio {
 
@@ -96,28 +95,10 @@ public class PlatformAudio {
 				logger.error("OGG file support detected as false! Using embedded JOrbis OGG decoder");
 			}
 		}
-
-		if(((WASMGCClientConfigAdapter)PlatformRuntime.getClientConfigAdapter()).isKeepAliveHackTeaVM()) {
-			byte[] silenceFile = PlatformAssets.getResourceBytes("/assets/eagler/silence_loop.wav");
-			if (silenceFile != null) {
-				MemoryStack.push();
-				try {
-					int len = silenceFile.length;
-					Address addr = MemoryStack.malloc(len);
-					WASMGCDirectArrayCopy.memcpy(addr, silenceFile, 0, len);
-					initKeepAliveHack(addr, len);
-				}finally {
-					MemoryStack.pop();
-				}
-			}
-		}
 	}
 
 	@Import(module = "platformAudio", name = "getContext")
 	private static native AudioContext getContext();
-
-	@Import(module = "platformAudio", name = "initKeepAliveHack")
-	private static native void initKeepAliveHack(Address addr, int length);
 
 	protected static class BrowserAudioResource implements IAudioResource {
 		
@@ -376,8 +357,11 @@ public class PlatformAudio {
 		return audioctx != null;
 	}
 
-	@Import(module = "platformAudio", name = "setupPanner")
-	static native void setupPanner(PannerNode node, float maxDist, float x, float y, float z);
+	@JSBody(params = { "node" }, script = "node.distanceModel = \"linear\";")
+	static native void setDistanceModelLinearFast(PannerNode node) ;
+
+	@JSBody(params = { "node" }, script = "node.panningModel = \"HRTF\";")
+	static native void setPanningModelHRTFFast(PannerNode node) ;
 
 	public static IAudioHandle beginPlayback(IAudioResource track, float x, float y, float z,
 			float volume, float pitch, boolean repeat) {
@@ -390,10 +374,17 @@ public class PlatformAudio {
 		src.setLoop(repeat);
 		
 		PannerNode panner = audioctx.createPanner();
-		
+		panner.setPosition(x, y, z);
 		float v1 = volume * 16.0f;
 		if(v1 < 16.0f) v1 = 16.0f;
-		setupPanner(panner, v1, x, y, z);
+		panner.setMaxDistance(v1);
+		panner.setRolloffFactor(1.0f);
+		setDistanceModelLinearFast(panner);
+		setPanningModelHRTFFast(panner);
+		panner.setConeInnerAngle(360.0f);
+		panner.setConeOuterAngle(0.0f);
+		panner.setConeOuterGain(0.0f);
+		panner.setOrientation(0.0f, 1.0f, 0.0f);
 		
 		GainNode gain = audioctx.createGain();
 		float v2 = volume;
@@ -406,7 +397,7 @@ public class PlatformAudio {
 		if(gameRecGain != null) {
 			gain.connect(gameRecGain);
 		}
-		
+
 		src.start();
 		
 		BrowserAudioHandle ret = new BrowserAudioHandle(internalTrack, src, panner, gain, pitch, repeat);

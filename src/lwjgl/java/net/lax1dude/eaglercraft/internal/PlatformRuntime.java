@@ -99,10 +99,6 @@ public class PlatformRuntime {
 
 		IEaglerFilesystem resourcePackFilesystem = Filesystem.getHandleFor(getClientConfigAdapter().getWorldsDB());
 		VFile2.setPrimaryFilesystem(resourcePackFilesystem);
-		
-		if (glfwPlatformSupported(GLFW_PLATFORM_X11)) {
-			glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
-		}
 
 		if (requestedANGLEPlatform != EnumPlatformANGLE.DEFAULT) {
 			logger.info("Setting ANGLE Platform: {}", requestedANGLEPlatform.name);
@@ -384,6 +380,15 @@ public class PlatformRuntime {
 
 	public static String getUserAgentString() {
 		return "Desktop/" + System.getProperty("os.name");
+	}
+
+	private static EnumPlatformOS currentPlatformOS = null;
+
+	public static EnumPlatformOS getPlatformOS() {
+		if (currentPlatformOS == null) {
+			currentPlatformOS = EnumPlatformOS.getFromJVM(System.getProperty("os.name"));
+		}
+		return currentPlatformOS;
 	}
 
 	private static EnumPlatformANGLE requestedANGLEPlatform = EnumPlatformANGLE.DEFAULT;

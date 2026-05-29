@@ -27,6 +27,7 @@ import org.teavm.jso.typedarrays.ArrayBuffer;
 import net.lax1dude.eaglercraft.Base64;
 import net.lax1dude.eaglercraft.internal.buffer.ByteBuffer;
 import net.lax1dude.eaglercraft.internal.buffer.EaglerArrayBufferAllocator;
+import net.lax1dude.eaglercraft.internal.teavm.DebugConsoleWindow;
 import net.lax1dude.eaglercraft.internal.teavm.TeaVMBlobURLHandle;
 import net.lax1dude.eaglercraft.internal.teavm.TeaVMBlobURLManager;
 import net.lax1dude.eaglercraft.internal.teavm.TeaVMUtils;
@@ -437,6 +438,28 @@ public class PlatformApplication {
 	@JSBody(params = { "doc", "str" }, script = "doc.write(str);doc.close();")
 	private static native void documentWrite(HTMLDocument doc, String str);
 
+	public static void openCreditsPopup(String text) {
+		Window currentWin = PlatformRuntime.win;
+		
+		int w = (int)(850 * PlatformInput.getDPI());
+		int h = (int)(700 * PlatformInput.getDPI());
+		
+		int x = (currentWin.getScreen().getWidth() - w) / 2;
+		int y = (currentWin.getScreen().getHeight() - h) / 2;
+		
+		Window newWin = Window.current().open("", "_blank", "top=" + y + ",left=" + x + ",width=" + w + ",height=" + h + ",menubar=0,status=0,titlebar=0,toolbar=0");
+		if(newWin == null || TeaVMUtils.isNotTruthy(newWin)) {
+			Window.alert("ERROR: Popup blocked!\n\nPlease make sure you have popups enabled for this site!");
+			return;
+		}
+
+		newWin.focus();
+		documentWrite(newWin.getDocument(), "<!DOCTYPE html><html><head><meta charset=\"UTF-8\" />"
+				+ "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /><title>EaglercraftX 1.8 Credits</title>"
+				+ "<link type=\"image/png\" rel=\"shortcut icon\" href=\"" + PlatformApplication.faviconURLTeaVM() + "\" />"
+						+ "</head><body><pre style=\"font:15px Consolas,monospace;\">" + text + "</pre></body></html>");
+	}
+
 	public static void clearFileChooserResult() {
 		fileChooserHasResult = false;
 		fileChooserResultObject = null;
@@ -486,6 +509,18 @@ public class PlatformApplication {
 
 	static void downloadURLWithNameTeaVM(String str, String url, DownloadBytesBlobURLRevoke revoker) {
 		downloadBytesImpl(str, url, revoker, PlatformRuntime.parent);
+	}
+
+	public static void showDebugConsole() {
+		DebugConsoleWindow.showDebugConsole();
+	}
+
+	public static void addLogMessage(String text, boolean err) {
+		DebugConsoleWindow.addLogMessage(text, err);
+	}
+
+	public static boolean isShowingDebugConsole() {
+		return DebugConsoleWindow.isShowingDebugConsole();
 	}
 
 	@JSBody(params = { "str" }, script = "window.minecraftServer = str;")

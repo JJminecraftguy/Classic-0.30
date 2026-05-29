@@ -43,7 +43,10 @@ import com.jcraft.jzlib.GZIPInputStream;
 import com.jcraft.jzlib.GZIPOutputStream;
 import com.jcraft.jzlib.Inflater;
 import com.jcraft.jzlib.InflaterInputStream;
+import com.mojang.minecraft.Minecraft;
 
+import net.lax1dude.eaglercraft.Filesystem;
+import net.lax1dude.eaglercraft.HString;
 import net.lax1dude.eaglercraft.internal.buffer.ByteBuffer;
 import net.lax1dude.eaglercraft.internal.buffer.FloatBuffer;
 import net.lax1dude.eaglercraft.internal.buffer.IntBuffer;
@@ -55,9 +58,8 @@ import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.BetterJSStringConverter;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.EarlyLoadScreen;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.WASMGCClientConfigAdapter;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.WebGLBackBuffer;
-import net.lax1dude.eaglercraft.Filesystem;
-import net.lax1dude.eaglercraft.HString;
 import net.lax1dude.eaglercraft.opengl.RealOpenGLEnums;
+import net.peyton.eagler.level.LevelUtils;
 
 public class PlatformRuntime {
 
@@ -78,7 +80,6 @@ public class PlatformRuntime {
 		canvas = getCanvasElement();
 		printMemoryStackAddrWASMGC();
 		PlatformApplication.setMCServerWindowGlobal(null);
-		PlatformApplication.setResetSettingsCallbackWASM();
 		PlatformOpenGL.initContext();
 		PlatformInput.initContext(win, parent, canvas);
 
@@ -142,6 +143,10 @@ public class PlatformRuntime {
 
 	@JSBody(params = { }, script = "return navigator.userAgent||null;")
 	public static native String getUserAgentString();
+
+	public static EnumPlatformOS getPlatformOS() {
+		return EnumPlatformOS.getFromUA(getUserAgentString());
+	}
 
 	@JSBody(params = { }, script = "return location.protocol && location.protocol.toLowerCase() === \"https:\";")
 	public static native boolean requireSSL();
@@ -382,13 +387,6 @@ public class PlatformRuntime {
 	@Import(module = "platformRuntime", name = "writeCrashReport")
 	private static native void writeCrashReport0(JSString crashDump);
 
-	public static void showContextLostScreen(String crashDump) {
-		showContextLostScreen0(BetterJSStringConverter.stringToJS(crashDump));
-	}
-
-	@Import(module = "platformRuntime", name = "showContextLostScreen")
-	private static native void showContextLostScreen0(JSString crashDump);
-
 	public static void getStackTrace(Throwable t, Consumer<String> ret) {
 		StackTraceElement[] el = t.getStackTrace();
 		if(el.length > 0) {
@@ -533,5 +531,4 @@ public class PlatformRuntime {
 		logger.info("MemoryStack base: 0x{}, limit: 0x{}", HString.format("%08x", MemoryStack.stackBase.toInt()),
 				HString.format("%08x", MemoryStack.stackMax.toInt()));
 	}
-
 }

@@ -30,6 +30,7 @@ dependencies {
 	compileOnly("org.teavm:teavm-core:0.9.2") // workaround for a few hacks
 	implementation(libs.jorbis)
 	implementation(libs.bundles.common)
+	implementation("org.json:json:20251224")
 }
 
 val jsFolder = "javascript"
@@ -88,7 +89,7 @@ eaglercraftBuild {
 		js("main") {
 			sourceGeneratorOutput = file("$jsFolder/$jsFileName")
 			offlineDownloadTemplate = file("javascript/OfflineDownloadTemplate.txt")
-			mainOutput = file("$jsFolder/Classic 0.0.23a_01-JS.html")
+			mainOutput = file("$jsFolder/Classic 0.30-JS.html")
 		}.apply {
 			epkSources = file("../desktopRuntime/resources")
 			epkOutput = file("$jsFolder/assets.epk")

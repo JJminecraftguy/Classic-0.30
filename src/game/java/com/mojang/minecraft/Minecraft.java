@@ -1,1101 +1,1781 @@
 package com.mojang.minecraft;
 
-import com.mojang.comm.SocketConnection;
-import com.mojang.minecraft.character.Vec3;
-import com.mojang.minecraft.character.Zombie;
-import com.mojang.minecraft.character.ZombieModel;
-import com.mojang.minecraft.gui.ChatScreen;
-import com.mojang.minecraft.gui.ErrorScreen;
-import com.mojang.minecraft.gui.Font;
-import com.mojang.minecraft.gui.InGameHud;
-import com.mojang.minecraft.gui.InventoryScreen;
-import com.mojang.minecraft.gui.PauseScreen;
-import com.mojang.minecraft.gui.Screen;
+import com.mojang.minecraft.gamemode.CreativeGameMode;
+import com.mojang.minecraft.gamemode.GameMode;
+import com.mojang.minecraft.gamemode.SurvivalGameMode;
+import com.mojang.minecraft.gui.*;
+import com.mojang.minecraft.item.Arrow;
+import com.mojang.minecraft.item.Item;
 import com.mojang.minecraft.level.Level;
 import com.mojang.minecraft.level.LevelIO;
-import com.mojang.minecraft.level.levelgen.LevelGen;
-import com.mojang.minecraft.level.liquid.Liquid;
-import com.mojang.minecraft.level.tile.Tile;
-import com.mojang.minecraft.net.ConnectionManager;
+import com.mojang.minecraft.level.generator.LevelGenerator;
+import com.mojang.minecraft.level.liquid.LiquidType;
+import com.mojang.minecraft.level.tile.Block;
+import com.mojang.minecraft.mob.Mob;
+import com.mojang.minecraft.model.ModelManager;
+import com.mojang.minecraft.model.ModelPart;
+import com.mojang.minecraft.model.Vec3D;
+import com.mojang.minecraft.net.NetworkManager;
 import com.mojang.minecraft.net.NetworkPlayer;
-import com.mojang.minecraft.net.Packet;
+import com.mojang.minecraft.net.PacketType;
 import com.mojang.minecraft.particle.Particle;
-import com.mojang.minecraft.particle.ParticleEngine;
+import com.mojang.minecraft.particle.ParticleManager;
+import com.mojang.minecraft.particle.WaterDropParticle;
 import com.mojang.minecraft.phys.AABB;
-import com.mojang.minecraft.player.Inventory;
-import com.mojang.minecraft.player.MovementInputFromOptions;
+import com.mojang.minecraft.player.InputHandlerImpl;
 import com.mojang.minecraft.player.Player;
-import com.mojang.minecraft.renderer.Chunk;
-import com.mojang.minecraft.renderer.Frustum;
-import com.mojang.minecraft.renderer.LevelRenderer;
-import com.mojang.minecraft.renderer.RenderHelper;
-import com.mojang.minecraft.renderer.Tesselator;
-import com.mojang.minecraft.renderer.Textures;
-import com.mojang.minecraft.renderer.texture.TextureFX;
-import com.mojang.minecraft.renderer.texture.TextureLavaFX;
-import com.mojang.minecraft.renderer.texture.TextureWaterFX;
+import com.mojang.minecraft.render.*;
+import com.mojang.minecraft.render.texture.TextureFX;
+import com.mojang.minecraft.render.texture.TextureLavaFX;
+import com.mojang.minecraft.render.texture.TextureWaterFX;
 import com.mojang.minecraft.sound.SoundManager;
-import com.mojang.util.GLAllocation;
+import com.mojang.util.MathHelper;
+import net.lax1dude.eaglercraft.Keyboard;
+import net.lax1dude.eaglercraft.Mouse;
+import net.lax1dude.eaglercraft.opengl.EaglercraftGPU;
+import net.lax1dude.eaglercraft.opengl.GlStateManager;
+import net.lax1dude.eaglercraft.opengl.RealOpenGLEnums;
+import net.lax1dude.eaglercraft.opengl.Tessellator;
+import net.lax1dude.eaglercraft.opengl.VertexFormat;
+import net.lax1dude.eaglercraft.opengl.WorldRenderer;
+import net.peyton.eagler.level.LevelStorageManager;
+import net.peyton.eagler.level.LevelUtils;
+import net.peyton.eagler.minecraft.FontRenderer;
+import net.lax1dude.eaglercraft.Display;
 import net.lax1dude.eaglercraft.EagRuntime;
 import net.lax1dude.eaglercraft.EagUtils;
-import com.mojang.minecraft.renderer.DirtyChunkSorter;
+import net.lax1dude.eaglercraft.EaglerInputStream;
+import net.lax1dude.eaglercraft.EaglerOutputStream;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.TreeSet;
-import java.util.zip.GZIPOutputStream;
-import java.util.ArrayList;
-
-import org.lwjgl.LWJGLException;
-import org.lwjgl.input.Keyboard;
-import org.lwjgl.input.Mouse;
-import org.lwjgl.opengl.Display;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.util.glu.GLU;
 
-import net.lax1dude.eaglercraft.internal.EnumPlatformType;
-import net.lax1dude.eaglercraft.internal.IWebSocketFrame;
-import net.lax1dude.eaglercraft.internal.buffer.ByteBuffer;
-import net.lax1dude.eaglercraft.internal.buffer.FloatBuffer;
-import net.lax1dude.eaglercraft.internal.buffer.IntBuffer;
-import net.lax1dude.eaglercraft.internal.vfs2.VFile2;
+import java.io.*;
+
+import net.lax1dude.eaglercraft.internal.PlatformOpenGL;
+import net.lax1dude.eaglercraft.minecraft.EaglerFontRenderer;
+
+import java.util.Collections;
+import java.util.List;
 
 public final class Minecraft implements Runnable {
-	private boolean fullscreen = false;
+
+	public GameMode gamemode = new SurvivalGameMode(this);
 	public int width;
 	public int height;
+	public float dpi;
 	private Timer timer = new Timer(20.0F);
 	public Level level;
-	private LevelRenderer levelRenderer;
+	public LevelRenderer levelRenderer;
 	public Player player;
-	private ParticleEngine particleEngine;
-	public User user = null;
-	private int yMouseAxis = 1;
-	public Textures textures;
-	public Font font;
-	private int editMode = 0;
-	public Screen screen = null;
-	public ProgressListener loadingScreen = new ProgressListener(this);
-	public RenderHelper renderHelper = new RenderHelper(this);
-	public LevelIO levelIo = new LevelIO(this.loadingScreen);
-	private LevelGen levelGen = new LevelGen(this.loadingScreen);
-	public SoundManager soundManager = new SoundManager(this);
-	private int ticksRan = 0;
-	public String loadMapUser = null;
-	public InGameHud hud;
-	public int loadMapID = 0;
-	public boolean hideGui = false;
-	public ZombieModel playerModel = new ZombieModel();
-	public ConnectionManager connectionManager;
-	public HitResult hitResult = null;
-	public Options options;
-	String server = null;
-	int port = 0;
-	volatile boolean running = false;
-	public String fpsString = "";
-	private boolean mouseGrabbed = false;
-	public int prevFrameTime = 0;
+	public ParticleManager particleManager;
+	public SessionData session = null;
+	public String host;
+	public boolean levelLoaded = false;
+	public volatile boolean waiting = false;
+	public TextureManager textureManager;
+	public FontRenderer fontRenderer;
+	public GuiScreen currentScreen = null;
+	public ProgressBarDisplay progressBar = new ProgressBarDisplay(this);
+	public Renderer renderer = new Renderer(this);
+	public SoundManager sound;
+	private int ticks;
+	private int blockHitTime;
+	public String levelName;
+	public int levelId;
+	public HUDScreen hud;
+	public boolean online;
+	public NetworkManager networkManager;
+	public MovingObjectPosition selected;
+	public GameSettings settings;
+	String server;
+	public volatile boolean running;
+	public String debug;
+	public boolean hasMouse;
+	private int lastClick;
+	public boolean raining;
+	private boolean enableGLErrorChecking = false;
+	private static Minecraft mc;
+	public boolean mpRestart = false;
 
-	
-	public Minecraft(int var2, int var3, boolean var4) {
-		this.width = width;
-		this.height = height;
-		this.fullscreen = false;
-		this.textures = new Textures();
-		this.textures.registerTextureFX(new TextureLavaFX());
-		this.textures.registerTextureFX(new TextureWaterFX());
+	private Logger logger = LogManager.getLogger();
+
+	public Minecraft(int var3, int var4, boolean var5) {
+		this.sound = new SoundManager();
+		this.ticks = 0;
+		this.blockHitTime = 0;
+		this.levelName = null;
+		this.levelId = 0;
+		this.online = false;
+		this.selected = null;
+		this.running = false;
+		this.debug = "";
+		this.hasMouse = false;
+		this.lastClick = 0;
+		this.raining = false;
+
+		this.width = var3;
+		this.height = var4;
+
+		this.enableGLErrorChecking = EagRuntime.getConfiguration().isCheckGLErrors();
+		mc = this;
+
+		try {
+			LevelStorageManager.loadLevelData();
+		} catch (IOException e) {
+			logger.error("Failed to load level data from file");
+			logger.error(e);
+		}
 	}
-	
-	public final void setServer(String var1) {
-		server = var1;
-	}
-	
-	public final void setScreen(Screen var1) {
-		if(!(this.screen instanceof ErrorScreen)) {
-			if(this.screen != null) {
-				this.screen.closeScreen();
+
+	public final void setCurrentScreen(GuiScreen var1) {
+		if (!(this.currentScreen instanceof ErrorScreen)) {
+			if (this.currentScreen != null) {
+				this.currentScreen.onClose();
 			}
 
-			this.screen = var1;
-			if(var1 != null) {
-				if(this.mouseGrabbed) {
+			if (var1 == null && this.player.health <= 0) {
+				var1 = new GameOverScreen();
+			}
+
+			this.currentScreen = (GuiScreen) var1;
+			if (var1 != null) {
+				if (this.hasMouse) {
 					this.player.releaseAllKeys();
-					this.mouseGrabbed = false;
-					Mouse.setGrabbed(false);
+					this.hasMouse = false;
+					if (!this.levelLoaded) {
+						Mouse.setGrabbed(false);
+					}
 				}
 
 				int var2 = this.width * 240 / this.height;
 				int var3 = this.height * 240 / this.height;
-				var1.init(this, var2, var3);
-				this.hideGui = false;
+				((GuiScreen) var1).open(this, var2, var3);
+				this.online = false;
 			} else {
 				this.grabMouse();
 			}
 		}
-	}
-	
-	private static void checkGlError(String string) {
-		int errorCode = GL11.glGetError();
-		if(errorCode != 0) {
-			String errorString = GLU.gluErrorString(errorCode);
-			System.out.println("########## GL ERROR ##########");
-			System.out.println("@ " + string);
-			System.out.println(errorCode + ": " + errorString);
-			throw new RuntimeException(errorCode + ": " + errorString);
-
-		}
-
+		ScaledResolution scaledresolution = new ScaledResolution(this);
+		EagRuntime.getConfiguration().getHooks().callScreenChangedHook(
+				currentScreen != null ? currentScreen.getClass().getName() : null, scaledresolution.getScaledWidth(),
+				scaledresolution.getScaledHeight(), width, height, scaledresolution.getScaleFactor());
 	}
 
-	public final void destroy() {
-		Minecraft var2 = this;
-		try {
-			if(this.connectionManager == null && var2.level != null) {
-				LevelIO.save(var2.level, new VFile2("level.dat"));
+	private void checkGLError(String var0) {
+		if (this.enableGLErrorChecking) {
+			int i = EaglercraftGPU.glGetError();
+
+			if (i != 0) {
+				String s = EaglercraftGPU.gluErrorString(i);
+				logger.error("########## GL ERROR ##########");
+				logger.error("@ " + var0);
+				logger.error(i + ": " + s);
 			}
-		} catch (Exception var1) {
-			var1.printStackTrace();
 		}
-		if(this.connectionManager != null) {
-			connectionManager.connection.disconnect();
-		}
+	}
+
+	public final void shutdown() {
 		EagRuntime.destroy();
+		EagRuntime.exit();
 	}
 
 	public final void run() {
 		this.running = true;
 
-		try {
-			Minecraft var4 = this;
-			if(this.fullscreen) {
-				Display.toggleFullscreen();
-				this.width = Display.getWidth();
-				this.height = Display.getHeight();
-			} else {
-				this.width = Display.getWidth();
-				this.height = Display.getHeight();
-			}
+		Display.setTitle("Minecraft 0.30");
+		checkGLError("Pre startup");
+		GL11.glEnable(3553);
+		GL11.glShadeModel(7425);
+		GL11.glClearDepth(1.0D);
+		GL11.glEnable(2929);
+		GL11.glDepthFunc(515);
+		GL11.glEnable(3008);
+		GL11.glAlphaFunc(516, 0.0F);
+		GL11.glCullFace(1029);
+		GL11.glMatrixMode(5889);
+		GL11.glLoadIdentity();
+		GL11.glMatrixMode(5888);
+		checkGLError("Startup");
 
-			Display.setTitle("Minecraft 0.0.23a_01");
-
-			Display.create();
-			Keyboard.create();
-			Mouse.create();
-
-			checkGlError("Pre startup");
-			GL11.glEnable(GL11.GL_TEXTURE_2D);
-			GL11.glShadeModel(GL11.GL_SMOOTH);
-			GL11.glClearDepth(1.0D);
-			GL11.glEnable(GL11.GL_DEPTH_TEST);
-			GL11.glDepthFunc(GL11.GL_LEQUAL);
-			GL11.glEnable(GL11.GL_ALPHA_TEST);
-			GL11.glAlphaFunc(GL11.GL_GREATER, 0.0F);
-			GL11.glCullFace(GL11.GL_BACK);
-			GL11.glMatrixMode(GL11.GL_PROJECTION);
-			GL11.glLoadIdentity();
-			GL11.glMatrixMode(GL11.GL_MODELVIEW);
-			checkGlError("Startup");
-			this.font = new Font("/default.png", this.textures);
-			IntBuffer var8 = GLAllocation.createIntBuffer(256);
-			var8.clear().limit(256);
-			GL11.glViewport(0, 0, this.width, this.height);
-			if(this.server != null && this.user != null) {
-				this.connectionManager = new ConnectionManager(this, this.server, this.user.name);
-				this.level = null;
-			} else {
-				boolean var9 = false;
-	
-				try {
-					Level var10 = null;
-					var10 = var4.levelIo.load(new VFile2("level.dat"));
-					var9 = var10 != null;
-					if(!var9) {
-						var10 = var4.levelIo.loadLegacy(new VFile2("level.dat"));
-						var9 = var10 != null;
-					}
-	
-					var4.setLevel(var10);
-				} catch (Exception var20) {
-					var20.printStackTrace();
-					var9 = false;
-				}
-	
-				if(!var9) {
-					this.generateLevel(1);
+		this.settings = new GameSettings(this);
+		this.textureManager = new TextureManager(this.settings);
+		this.textureManager.registerAnimation(new TextureLavaFX());
+		this.textureManager.registerAnimation(new TextureWaterFX());
+		this.fontRenderer = EaglerFontRenderer.createSupportedFontRenderer(this.settings, "/default.png", this.textureManager);
+		this.levelRenderer = new LevelRenderer(this, this.textureManager);
+		Item.initModels();
+		Mob.modelCache = new ModelManager();
+		GL11.glViewport(0, 0, this.width, this.height);
+		if (this.server != null && this.session != null) {
+			Level var85;
+			(var85 = new Level()).setData(8, 8, 8, new byte[512]);
+			this.setLevel(var85);
+		} else {
+			if (!this.levelLoaded) {
+				Level var11 = LevelUtils.load();
+				if (var11 != null) {
+					this.setLevel(var11);
 				}
 			}
 
-			this.levelRenderer = new LevelRenderer(this.textures);
-			this.particleEngine = new ParticleEngine(this.level, this.textures);
-			this.options = new Options(this);
-			this.player = new Player(this.level, new MovementInputFromOptions(this.options));
-			this.player.resetPos();
-			if(this.level != null) {
-				this.setLevel(this.level);
+			if (this.level == null) {
+				this.generateLevel(1);
 			}
-
-			checkGlError("Post startup");
-			this.hud = new InGameHud(this, this.width, this.height);
-		} catch (Exception var26) {
-			var26.printStackTrace();
-			System.out.println("Failed to start Minecraft");
-			return;
 		}
 
-		long var1 = System.currentTimeMillis();
-		int var3 = 0;
+		this.particleManager = new ParticleManager(this.level, this.textureManager);
 
-		try {
-			while(this.running) {
-					if(Display.isCloseRequested()) {
-						if(this.connectionManager != null) {
-							connectionManager.connection.disconnect();
-						}
-						this.running = false;
+		checkGLError("Post startup");
+		this.hud = new HUDScreen(this, this.width, this.height);
+		if (this.server != null && this.session != null) {
+			this.gamemode = new CreativeGameMode(this);
+			this.networkManager = new NetworkManager(this, this.server, this.session.username, this.session.mppass);
+		}
+
+		long var13 = EagRuntime.steadyTimeMillis();
+		int var15 = 0;
+
+		while (this.running) {
+			if (this.waiting) {
+				EagUtils.sleep(100L);
+			} else {
+				if (Display.isCloseRequested()) {
+					this.running = false;
+				}
+
+				long var16;
+				long var18 = (var16 = EagRuntime.steadyTimeMillis()) - this.timer.lastSysClock;
+				long var20 = EagRuntime.nanoTime() / 1000000L;
+				double var24;
+				if (var18 > 1000L) {
+					long var22 = var20 - this.timer.lastHRClock;
+					var24 = (double) var18 / (double) var22;
+					this.timer.adjustment += (var24 - this.timer.adjustment) * 0.20000000298023224D;
+					this.timer.lastSysClock = var16;
+					this.timer.lastHRClock = var20;
+				}
+
+				if (var18 < 0L) {
+					this.timer.lastSysClock = var16;
+					this.timer.lastHRClock = var20;
+				}
+
+				double var95;
+				var24 = ((var95 = (double) var20 / 1000.0D) - this.timer.lastHR) * this.timer.adjustment;
+				this.timer.lastHR = var95;
+				if (var24 < 0.0D) {
+					var24 = 0.0D;
+				}
+
+				if (var24 > 1.0D) {
+					var24 = 1.0D;
+				}
+
+				this.timer.elapsedDelta = (float) ((double) this.timer.elapsedDelta
+						+ var24 * (double) this.timer.speed * (double) this.timer.tps);
+				this.timer.elapsedTicks = (int) this.timer.elapsedDelta;
+				if (this.timer.elapsedTicks > 100) {
+					this.timer.elapsedTicks = 100;
+				}
+
+				this.timer.elapsedDelta -= (float) this.timer.elapsedTicks;
+				this.timer.delta = this.timer.elapsedDelta;
+
+				for (int var64 = 0; var64 < this.timer.elapsedTicks; ++var64) {
+					++this.ticks;
+					this.tick();
+				}
+
+				checkGLError("Pre render");
+
+				if (!Display.contextLost()) {
+					EaglercraftGPU.optimize();
+					PlatformOpenGL._wglBindFramebuffer(0x8D40, null);
+					GlStateManager.viewport(0, 0, this.width, this.height);
+					GlStateManager.clearColor(0.0f, 0.0f, 0.0f, 1.0f);
+					GlStateManager.pushMatrix();
+					GlStateManager.clear(RealOpenGLEnums.GL_COLOR_BUFFER_BIT | RealOpenGLEnums.GL_DEPTH_BUFFER_BIT);
+					GlStateManager.enableTexture2D();
+					GlStateManager.popMatrix();
+				}
+
+				GL11.glEnable(3553);
+
+				this.sound.updatePosition(this.player, this.timer.delta);
+
+				if (!this.online) {
+					this.gamemode.applyCracks(this.timer.delta);
+					if (this.renderer.displayActive && !Display.isActive()) {
+						this.pause();
 					}
 
-					try {
-						Timer var42 = this.timer;
-						long var47 = System.currentTimeMillis();
-						long var51 = var47 - var42.lastSyncSysClock;
-						long var56 = System.nanoTime() / 1000000L;
-						double var15;
-						if(var51 > 1000L) {
-							long var13 = var56 - var42.lastSyncHRClock;
-							var15 = (double)var51 / (double)var13;
-							var42.timeSyncAdjustment += (var15 - var42.timeSyncAdjustment) * (double)0.2F;
-							var42.lastSyncSysClock = var47;
-							var42.lastSyncHRClock = var56;
+					this.renderer.displayActive = Display.isActive();
+					int var68;
+					int var70;
+					int var86;
+					int var81;
+					if (this.hasMouse) {
+						var81 = 0;
+						var86 = 0;
+						if (!this.levelLoaded) {
+							var81 = Mouse.getDX();
+							var86 = Mouse.getDY();
 						}
 
-						if(var51 < 0L) {
-							var42.lastSyncSysClock = var47;
-							var42.lastSyncHRClock = var56;
+						byte var91 = 1;
+						if (this.settings.invertMouse) {
+							var91 = -1;
 						}
 
-						double var69 = (double)var56 / 1000.0D;
-						var15 = (var69 - var42.lastHRTime) * var42.timeSyncAdjustment;
-						var42.lastHRTime = var69;
-						if(var15 < 0.0D) {
-							var15 = 0.0D;
-						}
+						this.player.turn((float) var81, (float) (var86 * var91));
+					}
 
-						if(var15 > 1.0D) {
-							var15 = 1.0D;
-						}
-
-						var42.fps = (float)((double)var42.fps + var15 * (double)var42.timeScale * (double)var42.ticksPerSecond);
-						var42.ticks = (int)var42.fps;
-						if(var42.ticks > 100) {
-							var42.ticks = 100;
-						}
-
-						var42.fps -= (float)var42.ticks;
-						var42.a = var42.fps;
-
-						for(int var43 = 0; var43 < this.timer.ticks; ++var43) {
-							++this.ticksRan;
-							this.tick();
-						}
-
-						checkGlError("Pre render");
-						float var48 = this.timer.a;
-						RenderHelper var44 = this.renderHelper;
-						
-						this.soundManager.updatePosition(this.player, this.timer.a);
-
-						var44.displayActive = Display.isActive();
-						int var50;
-						int var53;
-						int var58;
-						int var63;
-						if(var44.minecraft.mouseGrabbed) {
-							var50 = 0;
-							var53 = 0;
-							var50 = Mouse.getDX();
-							var53 = Mouse.getDY();
-							var44.minecraft.yMouseAxis = 1;
-							if(var44.minecraft.options.invertMouse) {
-								var44.minecraft.yMouseAxis = -1;
+					if (!this.online) {
+						Vec3D playerVector = this.renderer.getPlayerVector(this.timer.delta);
+						var81 = this.width * 240 / this.height;
+						var86 = this.height * 240 / this.height;
+						int var94 = Mouse.getX() * var81 / this.width;
+						var70 = var86 - Mouse.getY() * var86 / this.height - 1;
+						if (this.level != null) {
+							float var29 = this.player.xRotO + (this.player.xRot - this.player.xRotO) * this.timer.delta;
+							float var30 = this.player.yRotO + (this.player.yRot - this.player.yRotO) * this.timer.delta;
+							float var32 = MathHelper.cos(-var30 * 0.017453292F - 3.1415927F);
+							float var69 = MathHelper.sin(-var30 * 0.017453292F - 3.1415927F);
+							float var74 = MathHelper.cos(-var29 * 0.017453292F);
+							float var33 = MathHelper.sin(-var29 * 0.017453292F);
+							float var34 = var69 * var74;
+							float var87 = var32 * var74;
+							float var36 = this.gamemode.getReachDistance();
+							Vec3D var71 = playerVector.add(var34 * var36, var33 * var36, var87 * var36);
+							this.selected = this.level.clip(playerVector, var71);
+							var74 = var36;
+							if (this.selected != null) {
+								var74 = this.selected.vec.distance(playerVector);
 							}
-							var44.minecraft.player.turn((float)var50, (float)(var53 * var44.minecraft.yMouseAxis));
-						}
 
-						if(!var44.minecraft.hideGui) {
-							int var68;
-							if (Display.wasResized()) {
-								if(Display.getHeight() != 0) {
-									this.width = Display.getWidth();
-									this.height = Display.getHeight();
-									if(this.hud !=null) {
-										this.hud = new InGameHud(this, this.width, this.height);
-									}
-									
-									if(this.screen != null) {
-										Screen sc = this.screen;
-										this.setScreen((Screen)null);
-										this.setScreen(sc);
-									}
-								}
-							}
-							int scaledWidth = var44.minecraft.width * 240 / var44.minecraft.height;
-							int scaledHeight = var44.minecraft.height * 240 / var44.minecraft.height;
-							int mouseX = Mouse.getX() * scaledWidth / var44.minecraft.width;
-							int mouseY = scaledHeight - Mouse.getY() * scaledHeight / var44.minecraft.height - 1;
-							if(var44.minecraft.level != null) {
-								Player var16 = var44.minecraft.player;
-								Level var5 = var44.minecraft.level;
-								LevelRenderer var6 = var44.minecraft.levelRenderer;
-								ParticleEngine var49 = var44.minecraft.particleEngine;
-								GL11.glViewport(0, 0, var44.minecraft.width, var44.minecraft.height);
-								Level var54 = var44.minecraft.level;
-								Player var60 = var44.minecraft.player;
-								float var65 = 1.0F / (float)(4 - var44.minecraft.options.renderDistance);
-								var65 = (float)Math.pow((double)var65, 0.25D);
-								var44.fogColorRed = 0.6F * (1.0F - var65) + var65;
-								var44.fogColorGreen = 0.8F * (1.0F - var65) + var65;
-								var44.fogColorBlue = 1.0F * (1.0F - var65) + var65;
-								var44.fogColorRed *= var44.fogColorMultiplier;
-								var44.fogColorGreen *= var44.fogColorMultiplier;
-								var44.fogColorBlue *= var44.fogColorMultiplier;
-								Tile var71 = Tile.tiles[var54.getTile((int)var60.x, (int)(var60.y + 0.12F), (int)var60.z)];
-								if(var71 != null && var71.getLiquidType() != Liquid.none) {
-									Liquid var17 = var71.getLiquidType();
-									if(var17 == Liquid.water) {
-										var44.fogColorRed = 0.02F;
-										var44.fogColorGreen = 0.02F;
-										var44.fogColorBlue = 0.2F;
-									} else if(var17 == Liquid.lava) {
-										var44.fogColorRed = 0.6F;
-										var44.fogColorGreen = 0.1F;
-										var44.fogColorBlue = 0.0F;
-									}
-								}
-
-								GL11.glClearColor(var44.fogColorRed, var44.fogColorGreen, var44.fogColorBlue, 0.0F);
-								GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_COLOR_BUFFER_BIT);
-								var60 = var44.minecraft.player;
-								var65 = var60.xRotO + (var60.xRot - var60.xRotO) * var48;
-								float var72 = var60.yRotO + (var60.yRot - var60.yRotO) * var48;
-								float var78 = var60.xo + (var60.x - var60.xo) * var48;
-								float var57 = var60.yo + (var60.y - var60.yo) * var48;
-								float var55 = var60.zo + (var60.z - var60.zo) * var48;
-								Vec3 var59 = new Vec3(var78, var57, var55);
-								var55 = (float)Math.cos((double)(-var72) * Math.PI / 180.0D + Math.PI);
-								float var66 = (float)Math.sin((double)(-var72) * Math.PI / 180.0D + Math.PI);
-								var72 = (float)Math.cos((double)(-var65) * Math.PI / 180.0D);
-								var65 = (float)Math.sin((double)(-var65) * Math.PI / 180.0D);
-								var66 *= var72;
-								var55 *= var72;
-								var72 = 5.0F;
-								float var10001 = var66 * var72;
-								float var10002 = var65 * var72;
-								var72 = var55 * var72;
-								var65 = var10002;
-								var66 = var10001;
-								Vec3 var61 = new Vec3(var59.x + var66, var59.y + var65, var59.z + var72);
-								var44.minecraft.hitResult = var44.minecraft.level.clip(var59, var61);
-								var44.fogColorMultiplier = 1.0F;
-								var44.renderDistance = (float)(512 >> (var44.minecraft.options.renderDistance << 1));
-								GL11.glMatrixMode(GL11.GL_PROJECTION);
-								GL11.glLoadIdentity();
-								GLU.gluPerspective(70.0F, (float)var44.minecraft.width / (float)var44.minecraft.height, 0.05F, var44.renderDistance);
-								GL11.glMatrixMode(GL11.GL_MODELVIEW);
-								GL11.glLoadIdentity();
-								Player var74 = var44.minecraft.player;
-								GL11.glTranslatef(0.0F, 0.0F, -0.3F);
-								GL11.glRotatef(var74.xRotO + (var74.xRot - var74.xRotO) * var48, 1.0F, 0.0F, 0.0F);
-								GL11.glRotatef(var74.yRotO + (var74.yRot - var74.yRotO) * var48, 0.0F, 1.0F, 0.0F);
-								var78 = var74.xo + (var74.x - var74.xo) * var48;
-								var57 = var74.yo + (var74.y - var74.yo) * var48;
-								var55 = var74.zo + (var74.z - var74.zo) * var48;
-								GL11.glTranslatef(-var78, -var57, -var55);
-								GL11.glEnable(GL11.GL_CULL_FACE);
-								Frustum var64 = Frustum.getFrustum();
-								Frustum var67 = var64;
-								LevelRenderer var62 = var44.minecraft.levelRenderer;
-
-								for(var58 = 0; var58 < var62.sortedChunks.length; ++var58) {
-									var62.sortedChunks[var58].isInFrustum(var67);
-								}
-
-								var62 = var44.minecraft.levelRenderer;
-								List<Chunk> var73 = new ArrayList<>(var62.dirtyChunks);
-								var73.sort(new DirtyChunkSorter(var74));
-								var73.addAll(var62.dirtyChunks);
-								var63 = 4;
-								Iterator var75 = var73.iterator();
-
-								while(var75.hasNext()) {
-									Chunk var79 = (Chunk)var75.next();
-									var79.rebuild();
-									var62.dirtyChunks.remove(var79);
-									--var63;
-									if(var63 == 0) {
-										break;
-									}
-								}
-
-								boolean var45 = var5.isSolid(var16.x, var16.y, var16.z, 0.1F);
-								var44.setupFog();
-								GL11.glEnable(GL11.GL_FOG);
-								var6.render(var16, 0);
-								int var46;
-								if(var45) {
-									var46 = (int)var16.x;
-									var53 = (int)var16.y;
-									var68 = (int)var16.z;
-
-									for(var58 = var46 - 1; var58 <= var46 + 1; ++var58) {
-										for(var63 = var53 - 1; var63 <= var53 + 1; ++var63) {
-											for(int var76 = var68 - 1; var76 <= var68 + 1; ++var76) {
-												var6.render(var58, var63, var76);
-											}
-										}
-									}
-								}
-
-//								var44.toggleLight(true);
-								var6.renderEntities(var64, var48);
-//								var44.toggleLight(false);
-								var44.setupFog();
-								var49.render(var16, var48);
-								var6.renderSurroundingGround();
-								GL11.glDisable(GL11.GL_LIGHTING);
-								var44.setupFog();
-								var6.renderClouds(var48);
-								var44.setupFog();
-								GL11.glEnable(GL11.GL_LIGHTING);
-								if(var44.minecraft.hitResult != null) {
-									GL11.glDisable(GL11.GL_LIGHTING);
-									GL11.glDisable(GL11.GL_ALPHA_TEST);
-									var6.renderHit(var16, var44.minecraft.hitResult, var44.minecraft.editMode, var16.inventory.getSelected());
-									LevelRenderer.renderHitOutline(var44.minecraft.hitResult, var44.minecraft.editMode);
-									GL11.glEnable(GL11.GL_ALPHA_TEST);
-									GL11.glEnable(GL11.GL_LIGHTING);
-								}
-
-								GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-								var44.setupFog();
-//								var6.renderSurroundingGround();
-								GL11.glEnable(GL11.GL_BLEND);
-//								GL11.glColorMask(false, false, false, false);
-								var46 = var6.render(var16, 1);
-//								GL11.glColorMask(true, true, true, true);
-								if(var46 > 0) {
-									GL11.glEnable(GL11.GL_TEXTURE_2D);
-									GL11.glBindTexture(GL11.GL_TEXTURE_2D, var6.textures.getTextureId("/terrain.png"));
-									GL11.glCallLists(var6.dummyBuffer);
-									GL11.glDisable(GL11.GL_TEXTURE_2D);
-								}
-
-								GL11.glDepthMask(true);
-								GL11.glDisable(GL11.GL_BLEND);
-								GL11.glDisable(GL11.GL_LIGHTING);
-								GL11.glDisable(GL11.GL_FOG);
-								GL11.glDisable(GL11.GL_TEXTURE_2D);
-								if(var44.minecraft.hitResult != null) {
-									GL11.glDepthFunc(GL11.GL_LESS);
-									GL11.glDisable(GL11.GL_ALPHA_TEST);
-//									var6.renderHit(var16, var44.minecraft.hitResult, var44.minecraft.editMode, var16.inventory.getSelected());
-									LevelRenderer.renderHitOutline(var44.minecraft.hitResult, var44.minecraft.editMode);
-									GL11.glEnable(GL11.GL_ALPHA_TEST);
-									GL11.glDepthFunc(GL11.GL_LEQUAL);
-								}
-
-								var44.minecraft.hud.render(var44.minecraft.screen != null, mouseX, mouseY);
+							if (this.gamemode instanceof CreativeGameMode) {
+								var36 = 32.0F;
 							} else {
-								GL11.glViewport(0, 0, var44.minecraft.width, var44.minecraft.height);
-								GL11.glClearColor(0.0F, 0.0F, 0.0F, 0.0F);
-								GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_COLOR_BUFFER_BIT);
-								GL11.glMatrixMode(GL11.GL_PROJECTION);
-								GL11.glLoadIdentity();
-								GL11.glMatrixMode(GL11.GL_MODELVIEW);
-								GL11.glLoadIdentity();
-								var44.initGui();
+								var36 = var74;
 							}
 
-							if(var44.minecraft.screen != null) {
-								var50 = var44.minecraft.width * 240 / var44.minecraft.height;
-								var53 = var44.minecraft.height * 240 / var44.minecraft.height;
-								var68 = Mouse.getX() * var50 / var44.minecraft.width;
-								var58 = var53 - Mouse.getY() * var53 / var44.minecraft.height - 1;
-								var44.minecraft.screen.render(var68, var58);
-							}
-							Display.update();
-						}
+							var71 = playerVector.add(var34 * var36, var33 * var36, var87 * var36);
+							this.renderer.entity = null;
+							List<Entity> var37 = this.level.blockMap.getEntities(this.player,
+									this.player.bb.expand(var34 * var36, var33 * var36, var87 * var36));
+							float var35 = 0.0F;
 
-						checkGlError("Post render");
-						++var3;
-					} catch (Exception var34) {
-						this.setScreen(new ErrorScreen("Client error", "The game broke! [" + var34 + "]"));
-						var34.printStackTrace();
-					}
-
-					while(System.currentTimeMillis() >= var1 + 1000L) {
-						this.fpsString = var3 + " fps, " + Chunk.updates + " chunk updates";
-						Chunk.updates = 0;
-						var1 += 1000L;
-						var3 = 0;
-					}
-				}
-
-			return;
-		} catch (StopGameException var35) {
-			return;
-		} catch (Exception var36) {
-			var36.printStackTrace();
-		} finally {
-			this.destroy();
-		}
-
-	}
-	
-	public final void grabMouse() {
-		if(!this.mouseGrabbed) {
-			this.mouseGrabbed = true;
-			Mouse.setGrabbed(true);
-			this.setScreen((Screen)null);
-			this.prevFrameTime = this.ticksRan + 10000;
-		}
-	}
-	
-	public void pauseGame() {
-		if(!(this.screen instanceof PauseScreen)) {
-			this.setScreen(new PauseScreen());
-		}
-	}
-	
-	private int saveCountdown = 600;
-
-	private void levelSave() {
-	    if (level == null) return;
-
-	    saveCountdown--;
-	    if (saveCountdown <= 0) {
-	    	LevelIO.save(this.level, new VFile2("level.dat"));
-	        saveCountdown = 600;
-	    }
-	}
-	
-
-	private void clickMouse() {
-		if(this.hitResult != null) {
-			int var1 = this.hitResult.x;
-			int var2 = this.hitResult.y;
-			int var3 = this.hitResult.z;
-			if(this.editMode != 0) {
-				if(this.hitResult.f == 0) {
-					--var2;
-				}
-
-				if(this.hitResult.f == 1) {
-					++var2;
-				}
-
-				if(this.hitResult.f == 2) {
-					--var3;
-				}
-
-				if(this.hitResult.f == 3) {
-					++var3;
-				}
-
-				if(this.hitResult.f == 4) {
-					--var1;
-				}
-
-				if(this.hitResult.f == 5) {
-					++var1;
-				}
-			}
-
-			Tile var4 = Tile.tiles[this.level.getTile(var1, var2, var3)];
-			if(this.editMode == 0) {
-				if(var4 != Tile.unbreakable || this.player.userType >= 100) {
-					boolean var8 = this.level.netSetTile(var1, var2, var3, 0);
-					if(var4 != null && var8) {
-						if(this.isMultiplayer()) {
-							this.connectionManager.sendBlockChange(var1, var2, var3, this.editMode, this.player.inventory.getSelected());
-						}
-
-						if(var4.soundType != Tile.SoundType.none) {
-							this.level.playSound("step." + var4.soundType.name, (float)var1, (float)var2, (float)var3, (var4.soundType.getVolume() + 1.0F) / 2.0F, var4.soundType.getPitch() * 0.8F);
-							var4.destroy(this.level, var1, var2, var3, this.particleEngine);
-						}
-					}
-
-					return;
-				}
-			} else {
-				int var5 = this.player.inventory.getSelected();
-				var4 = Tile.tiles[this.level.getTile(var1, var2, var3)];
-				if(var4 == null || var4 == Tile.water || var4 == Tile.calmWater || var4 == Tile.lava || var4 == Tile.calmLava) {
-					AABB var7 = Tile.tiles[var5].getTileAABB(var1, var2, var3);
-					if(var7 == null || (this.player.bb.intersects(var7) ? false : this.level.isFree(var7))) {
-						if(this.isMultiplayer()) {
-							this.connectionManager.sendBlockChange(var1, var2, var3, this.editMode, var5);
-						}
-
-						this.level.netSetTile(var1, var2, var3, this.player.inventory.getSelected());
-						Tile.tiles[var5].onBlockAdded(this.level, var1, var2, var3);
-					}
-				}
-			}
-
-		}
-	}
-	
-	private void tick() {
-		SoundManager var1 = this.soundManager;
-		if(System.currentTimeMillis() > var1.lastMusic && var1.playMusic()) {
-			var1.lastMusic = System.currentTimeMillis() + (long)var1.random.nextInt(900000) + 300000L;
-		}
-
-		InGameHud var14 = this.hud;
-
-		int var17;
-		for(var17 = 0; var17 < var14.messages.size(); ++var17) {
-			++((ChatLine)var14.messages.get(var17)).counter;
-		}
-
-		GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.textures.getTextureId("/terrain.png"));
-		Textures var15 = this.textures;
-
-		for(var17 = 0; var17 < var15.textureList.size(); ++var17) {
-			TextureFX var3 = (TextureFX)var15.textureList.get(var17);
-			var3.onTick();
-			var15.textureBuffer.clear();
-			var15.textureBuffer.put(var3.imageData);
-			var15.textureBuffer.position(0).limit(var3.imageData.length);
-			GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, var3.iconIndex % 16 << 4, var3.iconIndex / 16 << 4, 16, 16, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (ByteBuffer)var15.textureBuffer);
-		}
-
-		int var28;
-		if(this.connectionManager != null && !(this.screen instanceof ErrorScreen)) {
-			if(!this.connectionManager.isConnected()) {
-				this.loadingScreen.beginLevelLoading("Connecting..");
-				this.loadingScreen.setLoadingProgress(0);
-			} else {
-				ConnectionManager var16 = this.connectionManager;
-				int var4;
-				if(var16.processData) {
-					SocketConnection var21 = var16.connection;
-					if(var21.manager.isConnected()) {
-						try {
-							SocketConnection var20 = var16.connection;
-							IWebSocketFrame packet = var21.webSocket.getNextBinaryFrame();
-							byte[] packetData = packet == null ? null : packet.getByteArray();
-
-							if (packetData != null && packetData.length > 0) {
-								var20.readBuffer.put(packetData);
-							}
-							var4 = 0;
-
-							while(var20.readBuffer.position() > 0 && var4++ != 100) {
-								var20.readBuffer.flip();
-								byte var5 = var20.readBuffer.get(0);
-								Packet var6 = Packet.PACKETS[var5];
-								if(var6 == null) {
-									throw new IOException("Bad command: " + var5);
+							for (var81 = 0; var81 < var37.size(); ++var81) {
+								Entity var88;
+								if ((var88 = (Entity) var37.get(var81)).isPickable()) {
+									var74 = 0.1F;
+									MovingObjectPosition var78;
+									if ((var78 = var88.bb.grow(var74, var74, var74).clip(playerVector, var71)) != null
+											&& ((var74 = playerVector.distance(var78.vec)) < var35 || var35 == 0.0F)) {
+										this.renderer.entity = var88;
+										var35 = var74;
+									}
 								}
+							}
 
-								if(var20.readBuffer.remaining() < var6.size + 1) {
-									var20.readBuffer.compact();
+							if (this.renderer.entity != null && !(this.gamemode instanceof CreativeGameMode)) {
+								this.selected = new MovingObjectPosition(this.renderer.entity);
+							}
+
+							int var77 = 0;
+
+							while (true) {
+								if (var77 >= 2) {
+									GL11.glColorMask(true, true, true, false);
 									break;
 								}
 
-								var20.readBuffer.get();
-								Object[] var23 = new Object[var6.fields.length];
-
-								for(var28 = 0; var28 < var23.length; ++var28) {
-									var23[var28] = var20.read(var6.fields[var28]);
+								if (this.settings.anaglyph) {
+									if (var77 == 0) {
+										GL11.glColorMask(false, true, true, false);
+									} else {
+										GL11.glColorMask(true, false, false, false);
+									}
 								}
 
-								ConnectionManager var26 = var20.manager;
-								if(var26.processData) {
-									if(var6 == Packet.LOGIN) {
-										var26.minecraft.loadingScreen.beginLevelLoading(var23[1].toString());
-										var26.minecraft.loadingScreen.levelLoadUpdate(var23[2].toString());
-										var26.minecraft.player.userType = ((Byte)var23[3]).byteValue();
-									} else if(var6 == Packet.LEVEL_INITIALIZE) {
-										var26.minecraft.setLevel((Level)null);
-										var26.levelBuffer = new ByteArrayOutputStream();
-									} else {
-										byte var8;
-										if(var6 == Packet.LEVEL_DATA_CHUNK) {
-											short var32 = ((Short)var23[0]).shortValue();
-											byte[] var7 = (byte[])((byte[])var23[1]);
-											var8 = ((Byte)var23[2]).byteValue();
-											var26.minecraft.loadingScreen.setLoadingProgress(var8);
-											var26.levelBuffer.write(var7, 0, var32);
-										} else {
-											short var34;
-											short var36;
-											short var39;
-											if(var6 == Packet.LEVEL_FINALIZE) {
-												try {
-													var26.levelBuffer.close();
-												} catch (IOException var12) {
-													var12.printStackTrace();
-												}
+								GL11.glViewport(0, 0, this.width, this.height);
+								var29 = 1.0F / (float) (4 - this.settings.viewDistance);
+								var29 = 1.0F - (float) Math.pow((double) var29, 0.25D);
+								var30 = (float) (this.level.skyColor >> 16 & 255) / 255.0F;
+								float var117 = (float) (this.level.skyColor >> 8 & 255) / 255.0F;
+								var32 = (float) (this.level.skyColor & 255) / 255.0F;
+								this.renderer.fogRed = (float) (this.level.fogColor >> 16 & 255) / 255.0F;
+								this.renderer.fogBlue = (float) (this.level.fogColor >> 8 & 255) / 255.0F;
+								this.renderer.fogGreen = (float) (this.level.fogColor & 255) / 255.0F;
+								this.renderer.fogRed += (var30 - this.renderer.fogRed) * var29;
+								this.renderer.fogBlue += (var117 - this.renderer.fogBlue) * var29;
+								this.renderer.fogGreen += (var32 - this.renderer.fogGreen) * var29;
+								this.renderer.fogRed *= this.renderer.fogColorMultiplier;
+								this.renderer.fogBlue *= this.renderer.fogColorMultiplier;
+								this.renderer.fogGreen *= this.renderer.fogColorMultiplier;
+								Block var73;
+								if ((var73 = Block.blocks[this.level.getTile((int) this.player.x,
+										(int) (this.player.y + 0.12F), (int) this.player.z)]) != null
+										&& var73.getLiquidType() != LiquidType.NOT_LIQUID) {
+									LiquidType var79;
+									if ((var79 = var73.getLiquidType()) == LiquidType.WATER) {
+										this.renderer.fogRed = 0.02F;
+										this.renderer.fogBlue = 0.02F;
+										this.renderer.fogGreen = 0.2F;
+									} else if (var79 == LiquidType.LAVA) {
+										this.renderer.fogRed = 0.6F;
+										this.renderer.fogBlue = 0.1F;
+										this.renderer.fogGreen = 0.0F;
+									}
+								}
 
-												byte[] var33 = LevelIO.loadBlocks(new ByteArrayInputStream(var26.levelBuffer.toByteArray()));
-												var26.levelBuffer = null;
-												var36 = ((Short)var23[0]).shortValue();
-												var39 = ((Short)var23[1]).shortValue();
-												var34 = ((Short)var23[2]).shortValue();
-												Level var9 = new Level();
-												var9.setNetworkMode(true);
-												var9.setData(var36, var39, var34, var33);
-												var26.minecraft.setLevel(var9);
-												var26.minecraft.hideGui = false;
-											} else if(var6 == Packet.SET_TILE) {
-												if(var26.minecraft.level != null) {
-													var26.minecraft.level.netSetTile(((Short)var23[0]).shortValue(), ((Short)var23[1]).shortValue(), ((Short)var23[2]).shortValue(), ((Byte)var23[3]).byteValue());
-												}
-											} else {
-												byte var10;
-												short var10003;
-												short var10004;
-												String var35;
-												NetworkPlayer var37;
-												byte var48;
-												if(var6 == Packet.PLAYER_JOIN) {
-													var48 = ((Byte)var23[0]).byteValue();
-													String var10002 = (String)var23[1];
-													var10003 = ((Short)var23[2]).shortValue();
-													var10004 = ((Short)var23[3]).shortValue();
-													short var10005 = ((Short)var23[4]).shortValue();
-													byte var10006 = ((Byte)var23[5]).byteValue();
-													byte var11 = ((Byte)var23[6]).byteValue();
-													var10 = var10006;
-													short var41 = var10005;
-													var39 = var10004;
-													var36 = var10003;
-													var35 = var10002;
-													var5 = var48;
-													if(var5 >= 0) {
-														var37 = new NetworkPlayer(var26.minecraft, var5, var35, var36, var39, var41, (float)(-var10 * 360) / 256.0F, (float)(var11 * 360) / 256.0F);
-														var26.players.put(Byte.valueOf(var5), var37);
-														var26.minecraft.level.entities.add(var37);
-													} else {
-														var26.minecraft.level.setSpawnPos(var36 / 32, var39 / 32, var41 / 32, (float)(var10 * 320 / 256));
-														var26.minecraft.player.moveTo((float)var36 / 32.0F, (float)var39 / 32.0F, (float)var41 / 32.0F, (float)(var10 * 360) / 256.0F, (float)(var11 * 360) / 256.0F);
+								if (this.settings.anaglyph) {
+									var74 = (this.renderer.fogRed * 30.0F + this.renderer.fogBlue * 59.0F
+											+ this.renderer.fogGreen * 11.0F) / 100.0F;
+									var33 = (this.renderer.fogRed * 30.0F + this.renderer.fogBlue * 70.0F) / 100.0F;
+									var34 = (this.renderer.fogRed * 30.0F + this.renderer.fogGreen * 70.0F) / 100.0F;
+									this.renderer.fogRed = var74;
+									this.renderer.fogBlue = var33;
+									this.renderer.fogGreen = var34;
+								}
+
+								GL11.glClearColor(this.renderer.fogRed, this.renderer.fogBlue, this.renderer.fogGreen,
+										0.0F);
+								GL11.glClear(16640);
+								this.renderer.fogColorMultiplier = 1.0F;
+								GL11.glEnable(2884);
+								this.renderer.fogEnd = (float) (512 >> (this.settings.viewDistance << 1));
+								GL11.glMatrixMode(5889);
+								GL11.glLoadIdentity();
+								var29 = 0.07F;
+								if (this.settings.anaglyph) {
+									GL11.glTranslatef((float) (-((var77 << 1) - 1)) * var29, 0.0F, 0.0F);
+								}
+
+								var69 = 70.0F;
+								if (this.player.health <= 0) {
+									var74 = (float) this.player.deathTime + this.timer.delta;
+									var69 /= (1.0F - 500.0F / (var74 + 500.0F)) * 2.0F + 1.0F;
+								}
+
+								GL11.gluPerspective(var69, (float) this.width / (float) this.height, 0.05F,
+										this.renderer.fogEnd);
+								GL11.glMatrixMode(5888);
+								GL11.glLoadIdentity();
+								if (this.settings.anaglyph) {
+									GL11.glTranslatef((float) ((var77 << 1) - 1) * 0.1F, 0.0F, 0.0F);
+								}
+
+								this.renderer.hurtEffect(this.timer.delta);
+								if (this.settings.viewBobbing) {
+									this.renderer.applyBobbing(this.timer.delta);
+								}
+
+								GL11.glTranslatef(0.0F, 0.0F, -0.1F);
+								GL11.glRotatef(
+										this.player.xRotO + (this.player.xRot - this.player.xRotO) * this.timer.delta,
+										1.0F, 0.0F, 0.0F);
+								GL11.glRotatef(
+										this.player.yRotO + (this.player.yRot - this.player.yRotO) * this.timer.delta,
+										0.0F, 1.0F, 0.0F);
+								var69 = this.player.xo + (this.player.x - this.player.xo) * this.timer.delta;
+								var74 = this.player.yo + (this.player.y - this.player.yo) * this.timer.delta;
+								var33 = this.player.zo + (this.player.z - this.player.zo) * this.timer.delta;
+								GL11.glTranslatef(-var69, -var74, -var33);
+								Frustrum var76 = FrustrumImpl.update();
+								Frustrum var100 = var76;
+
+								int var98;
+								for (var98 = 0; var98 < this.levelRenderer.chunkCache.length; ++var98) {
+									this.levelRenderer.chunkCache[var98].clip(var100);
+								}
+
+								Collections.sort(this.levelRenderer.chunks,
+										new ChunkDirtyDistanceComparator(this.player));
+								var98 = this.levelRenderer.chunks.size() - 1;
+								int var105;
+								if ((var105 = this.levelRenderer.chunks.size()) > 3) {
+									var105 = 3;
+								}
+
+								int var104;
+								for (var104 = 0; var104 < var105; ++var104) {
+									Chunk var118;
+									(var118 = (Chunk) this.levelRenderer.chunks.remove(var98 - var104)).update();
+									var118.loaded = false;
+								}
+
+								this.renderer.updateFog();
+								GL11.glEnable(2912);
+								this.levelRenderer.sortChunks(this.player, 0);
+								int var83;
+								int var110;
+								Tessellator tess = Tessellator.getInstance();
+								WorldRenderer var115;
+								int var114;
+								int var125;
+								int var122;
+								int var120;
+								if (this.level.isSolid(this.player.x, this.player.y, this.player.z, 0.1F)) {
+									var120 = (int) this.player.x;
+									var83 = (int) this.player.y;
+									var110 = (int) this.player.z;
+
+									for (var122 = var120 - 1; var122 <= var120 + 1; ++var122) {
+										for (var125 = var83 - 1; var125 <= var83 + 1; ++var125) {
+											for (int var38 = var110 - 1; var38 <= var110 + 1; ++var38) {
+												var105 = var38;
+												var98 = var125;
+												int var99 = var122;
+												if ((var104 = this.levelRenderer.level.getTile(var122, var125,
+														var38)) != 0 && Block.blocks[var104].isSolid()) {
+													GL11.glColor4f(0.2F, 0.2F, 0.2F, 1.0F);
+													GL11.glDepthFunc(513);
+													var115 = tess.getWorldRenderer();
+													var115.begin(7, VertexFormat.POSITION_TEX);
+
+													for (var114 = 0; var114 < 6; ++var114) {
+														Block.blocks[var104].renderInside(var115, var99, var98, var105,
+																var114);
 													}
-												} else {
-													byte var43;
-													NetworkPlayer var46;
-													byte var53;
-													if(var6 == Packet.PLAYER_TELEPORT) {
-														var48 = ((Byte)var23[0]).byteValue();
-														short var49 = ((Short)var23[1]).shortValue();
-														var10003 = ((Short)var23[2]).shortValue();
-														var10004 = ((Short)var23[3]).shortValue();
-														var53 = ((Byte)var23[4]).byteValue();
-														var10 = ((Byte)var23[5]).byteValue();
-														var43 = var53;
-														var39 = var10004;
-														var36 = var10003;
-														var34 = var49;
-														var5 = var48;
-														if(var5 < 0) {
-															var26.minecraft.player.moveTo((float)var34 / 32.0F, (float)var36 / 32.0F, (float)var39 / 32.0F, (float)(var43 * 360) / 256.0F, (float)(var10 * 360) / 256.0F);
-														} else {
-															var46 = (NetworkPlayer)var26.players.get(Byte.valueOf(var5));
-															if(var46 != null) {
-																var46.teleport(var34, var36, var39, (float)(-var43 * 360) / 256.0F, (float)(var10 * 360) / 256.0F);
-															}
-														}
-													} else {
-														byte var38;
-														byte var40;
-														byte var50;
-														byte var51;
-														if(var6 == Packet.PLAYER_MOVE_AND_ROTATE) {
-															var48 = ((Byte)var23[0]).byteValue();
-															var50 = ((Byte)var23[1]).byteValue();
-															var51 = ((Byte)var23[2]).byteValue();
-															byte var52 = ((Byte)var23[3]).byteValue();
-															var53 = ((Byte)var23[4]).byteValue();
-															var10 = ((Byte)var23[5]).byteValue();
-															var43 = var53;
-															var8 = var52;
-															var40 = var51;
-															var38 = var50;
-															var5 = var48;
-															if(var5 >= 0) {
-																var46 = (NetworkPlayer)var26.players.get(Byte.valueOf(var5));
-																if(var46 != null) {
-																	var46.queue(var38, var40, var8, (float)(-var43 * 360) / 256.0F, (float)(var10 * 360) / 256.0F);
-																}
-															}
-														} else if(var6 == Packet.PLAYER_ROTATE) {
-															var48 = ((Byte)var23[0]).byteValue();
-															var50 = ((Byte)var23[1]).byteValue();
-															var40 = ((Byte)var23[2]).byteValue();
-															var38 = var50;
-															var5 = var48;
-															if(var5 >= 0) {
-																NetworkPlayer var44 = (NetworkPlayer)var26.players.get(Byte.valueOf(var5));
-																if(var44 != null) {
-																	var44.queue((float)(-var38 * 360) / 256.0F, (float)(var40 * 360) / 256.0F);
-																}
-															}
-														} else if(var6 == Packet.PLAYER_MOVE) {
-															var48 = ((Byte)var23[0]).byteValue();
-															var50 = ((Byte)var23[1]).byteValue();
-															var51 = ((Byte)var23[2]).byteValue();
-															var8 = ((Byte)var23[3]).byteValue();
-															var40 = var51;
-															var38 = var50;
-															var5 = var48;
-															if(var5 >= 0) {
-																NetworkPlayer var45 = (NetworkPlayer)var26.players.get(Byte.valueOf(var5));
-																if(var45 != null) {
-																	var45.queue(var38, var40, var8);
-																}
-															}
-														} else if(var6 == Packet.PLAYER_DISCONNECT) {
-															var5 = ((Byte)var23[0]).byteValue();
-															if(var5 >= 0) {
-																var37 = (NetworkPlayer)var26.players.remove(Byte.valueOf(var5));
-																if(var37 != null) {
-																	var37.clear();
-																	var26.minecraft.level.entities.remove(var37);
-																}
-															}
-														} else if(var6 == Packet.CHAT_MESSAGE) {
-															var48 = ((Byte)var23[0]).byteValue();
-															var35 = (String)var23[1];
-															var5 = var48;
-															if(var5 < 0 && var35 != null && !var35.isEmpty()) {
-																var26.minecraft.hud.addChatMessage("&e" + var35);
-															} else {
-																var26.players.get(Byte.valueOf(var5));
-																var26.minecraft.hud.addChatMessage(var35);
-															}
-														} else if(var6 == Packet.KICK_PLAYER) {
-															var26.minecraft.setScreen(new ErrorScreen("Connection lost", (String)var23[0]));
-															var26.connection.disconnect();
-														}
+
+													tess.draw();
+													GL11.glCullFace(1028);
+													var115.begin(7, VertexFormat.POSITION_TEX);
+
+													for (var114 = 0; var114 < 6; ++var114) {
+														Block.blocks[var104].renderInside(var115, var99, var98, var105,
+																var114);
 													}
+
+													tess.draw();
+													GL11.glCullFace(1029);
+													GL11.glDepthFunc(515);
 												}
 											}
 										}
 									}
 								}
-								var20.readBuffer.compact();
+
+								this.renderer.setLighting(true);
+								this.levelRenderer.level.blockMap.render(playerVector, var76, this.textureManager,
+										this.timer.delta);
+								this.renderer.setLighting(false);
+								this.renderer.updateFog();
+								var29 = -MathHelper.cos(this.player.yRot * 3.1415927F / 180.0F);
+								var117 = -(var30 = -MathHelper.sin(this.player.yRot * 3.1415927F / 180.0F))
+										* MathHelper.sin(this.player.xRot * 3.1415927F / 180.0F);
+								var32 = var29 * MathHelper.sin(this.player.xRot * 3.1415927F / 180.0F);
+								var69 = MathHelper.cos(this.player.xRot * 3.1415927F / 180.0F);
+
+								for (var83 = 0; var83 < 2; ++var83) {
+									if (this.particleManager.particles.get(var83).size() != 0) {
+										var110 = 0;
+										if (var83 == 0) {
+											var110 = this.textureManager.load("/particles.png");
+										}
+
+										if (var83 == 1) {
+											var110 = this.textureManager.load("/terrain.png");
+										}
+
+										GL11.glBindTexture(3553, var110);
+										WorldRenderer var121 = tess.getWorldRenderer();
+										var121.begin(7, VertexFormat.POSITION_TEX_COLOR);
+
+										for (var120 = 0; var120 < this.particleManager.particles.get(var83)
+												.size(); ++var120) {
+											((Particle) this.particleManager.particles.get(var83).get(var120)).render(
+													var121, this.timer.delta, var29, var69, var30, var117, var32);
+										}
+
+										tess.draw();
+									}
+								}
+
+								GL11.glBindTexture(3553, this.textureManager.load("/rock.png"));
+								GL11.glEnable(3553);
+								GL11.glCallList(this.levelRenderer.listId);
+								this.renderer.updateFog();
+								GL11.glBindTexture(3553, this.textureManager.load("/clouds.png"));
+								GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+								float var107 = (float) (this.levelRenderer.level.cloudColor >> 16 & 255) / 255.0F;
+								var29 = (float) (this.levelRenderer.level.cloudColor >> 8 & 255) / 255.0F;
+								var30 = (float) (this.levelRenderer.level.cloudColor & 255) / 255.0F;
+								if (this.settings.anaglyph) {
+									var117 = (var107 * 30.0F + var29 * 59.0F + var30 * 11.0F) / 100.0F;
+									var32 = (var107 * 30.0F + var29 * 70.0F) / 100.0F;
+									var69 = (var107 * 30.0F + var30 * 70.0F) / 100.0F;
+									var107 = var117;
+									var29 = var32;
+									var30 = var69;
+								}
+
+								var115 = tess.getWorldRenderer();
+								var74 = 0.0F;
+								var33 = 4.8828125E-4F;
+								var74 = (float) (this.levelRenderer.level.depth + 2);
+								var34 = ((float) this.levelRenderer.ticks + this.timer.delta) * var33 * 0.03F;
+								var35 = 0.0F;
+								var115.begin(7, VertexFormat.POSITION_TEX_COLOR);
+
+								for (var86 = -2048; var86 < this.levelRenderer.level.width + 2048; var86 += 512) {
+									for (var125 = -2048; var125 < this.levelRenderer.level.height
+											+ 2048; var125 += 512) {
+										var115.pos((float) var86, var74, (float) (var125 + 512))
+												.tex((float) var86 * var33 + var34, (float) (var125 + 512) * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+										var115.pos((float) (var86 + 512), var74, (float) (var125 + 512))
+												.tex((float) (var86 + 512) * var33 + var34,
+														(float) (var125 + 512) * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+										var115.pos((float) (var86 + 512), var74, (float) var125)
+												.tex((float) (var86 + 512) * var33 + var34, (float) var125 * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+										var115.pos((float) var86, var74, (float) var125)
+												.tex((float) var86 * var33 + var34, (float) var125 * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+										var115.pos((float) var86, var74, (float) var125)
+												.tex((float) var86 * var33 + var34, (float) var125 * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+										var115.pos((float) (var86 + 512), var74, (float) var125)
+												.tex((float) (var86 + 512) * var33 + var34, (float) var125 * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+										var115.pos((float) (var86 + 512), var74, (float) (var125 + 512))
+												.tex((float) (var86 + 512) * var33 + var34,
+														(float) (var125 + 512) * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+										var115.pos((float) var86, var74, (float) (var125 + 512))
+												.tex((float) var86 * var33 + var34, (float) (var125 + 512) * var33)
+												.color(var107, var29, var30, 1.0f).endVertex();
+									}
+								}
+
+								tess.draw();
+								GL11.glDisable(3553);
+								var115.begin(7, VertexFormat.POSITION_COLOR);
+								var34 = (float) (this.levelRenderer.level.skyColor >> 16 & 255) / 255.0F;
+								var35 = (float) (this.levelRenderer.level.skyColor >> 8 & 255) / 255.0F;
+								var87 = (float) (this.levelRenderer.level.skyColor & 255) / 255.0F;
+								if (this.settings.anaglyph) {
+									var36 = (var34 * 30.0F + var35 * 59.0F + var87 * 11.0F) / 100.0F;
+									var69 = (var34 * 30.0F + var35 * 70.0F) / 100.0F;
+									var74 = (var34 * 30.0F + var87 * 70.0F) / 100.0F;
+									var34 = var36;
+									var35 = var69;
+									var87 = var74;
+								}
+
+								var74 = (float) (this.levelRenderer.level.depth + 10);
+
+								for (var125 = -2048; var125 < this.levelRenderer.level.width + 2048; var125 += 512) {
+									for (var68 = -2048; var68 < this.levelRenderer.level.height + 2048; var68 += 512) {
+										var115.pos((float) var125, var74, (float) var68)
+												.color(var34, var35, var87, 1.0f).endVertex();
+										var115.pos((float) (var125 + 512), var74, (float) var68)
+												.color(var34, var35, var87, 1.0f).endVertex();
+										var115.pos((float) (var125 + 512), var74, (float) (var68 + 512))
+												.color(var34, var35, var87, 1.0f).endVertex();
+										var115.pos((float) var125, var74, (float) (var68 + 512))
+												.color(var34, var35, var87, 1.0f).endVertex();
+									}
+								}
+
+								tess.draw();
+								GL11.glEnable(3553);
+								this.renderer.updateFog();
+								int var108;
+								if (this.selected != null) {
+									GL11.glDisable(3008);
+									var105 = this.player.inventory.getSelected();
+									WorldRenderer var113 = tess.getWorldRenderer();
+									GL11.glEnable(3042);
+									GL11.glEnable(3008);
+									GL11.glBlendFunc(770, 1);
+									GL11.glColor4f(1.0F, 1.0F, 1.0F,
+											(MathHelper.sin((float) EagRuntime.steadyTimeMillis() / 100.0F) * 0.2F
+													+ 0.4F) * 0.5F);
+									if (this.levelRenderer.cracks > 0.0F) {
+										GL11.glBlendFunc(774, 768);
+										var108 = this.textureManager.load("/terrain.png");
+										GL11.glBindTexture(3553, var108);
+										GL11.glColor4f(1.0F, 1.0F, 1.0F, 0.5F);
+										GL11.glPushMatrix();
+										var73 = (var114 = this.levelRenderer.level.getTile(this.selected.x,
+												this.selected.y, this.selected.z)) > 0 ? Block.blocks[var114]
+														: Block.STONE;
+										var74 = (var73.x1 + var73.x2) / 2.0F;
+										var33 = (var73.y1 + var73.y2) / 2.0F;
+										var34 = (var73.z1 + var73.z2) / 2.0F;
+										GL11.glTranslatef((float) this.selected.x + var74,
+												(float) this.selected.y + var33, (float) this.selected.z + var34);
+										var35 = 1.01F;
+										GL11.glScalef(1.01F, var35, var35);
+										GL11.glTranslatef(-((float) this.selected.x + var74),
+												-((float) this.selected.y + var33), -((float) this.selected.z + var34));
+										var113.begin(7, VertexFormat.POSITION_TEX);
+										var113.markDirty();
+										GL11.glDepthMask(false);
+
+										for (var86 = 0; var86 < 6; ++var86) {
+											var73.renderSide(var113, this.selected.x, this.selected.y, this.selected.z,
+													var86, 240 + (int) (this.levelRenderer.cracks * 10.0F));
+										}
+
+										tess.draw();
+										GL11.glDepthMask(true);
+										GL11.glPopMatrix();
+									}
+
+									GL11.glDisable(3042);
+									GL11.glDisable(3008);
+									this.player.inventory.getSelected();
+									GL11.glEnable(3042);
+									GL11.glBlendFunc(770, 771);
+									GL11.glColor4f(0.0F, 0.0F, 0.0F, 0.4F);
+									GL11.glLineWidth(2.0F);
+									GL11.glDisable(3553);
+									GL11.glDepthMask(false);
+									var29 = 0.002F;
+									if ((var104 = this.levelRenderer.level.getTile(this.selected.x, this.selected.y,
+											this.selected.z)) > 0) {
+										AABB var111 = Block.blocks[var104]
+												.getSelectionBox(this.selected.x, this.selected.y, this.selected.z)
+												.grow(var29, var29, var29);
+										var113.begin(3, VertexFormat.POSITION);
+										var113.pos(var111.x0, var111.y0, var111.z0).endVertex();
+										var113.pos(var111.x1, var111.y0, var111.z0).endVertex();
+										var113.pos(var111.x1, var111.y0, var111.z1).endVertex();
+										var113.pos(var111.x0, var111.y0, var111.z1).endVertex();
+										var113.pos(var111.x0, var111.y0, var111.z0).endVertex();
+										tess.draw();
+										var113.begin(3, VertexFormat.POSITION);
+										var113.pos(var111.x0, var111.y1, var111.z0).endVertex();
+										var113.pos(var111.x1, var111.y1, var111.z0).endVertex();
+										var113.pos(var111.x1, var111.y1, var111.z1).endVertex();
+										var113.pos(var111.x0, var111.y1, var111.z1).endVertex();
+										var113.pos(var111.x0, var111.y1, var111.z0).endVertex();
+										tess.draw();
+										var113.begin(1, VertexFormat.POSITION);
+										var113.pos(var111.x0, var111.y0, var111.z0).endVertex();
+										var113.pos(var111.x0, var111.y1, var111.z0).endVertex();
+										var113.pos(var111.x1, var111.y0, var111.z0).endVertex();
+										var113.pos(var111.x1, var111.y1, var111.z0).endVertex();
+										var113.pos(var111.x1, var111.y0, var111.z1).endVertex();
+										var113.pos(var111.x1, var111.y1, var111.z1).endVertex();
+										var113.pos(var111.x0, var111.y0, var111.z1).endVertex();
+										var113.pos(var111.x0, var111.y1, var111.z1).endVertex();
+										tess.draw();
+									}
+
+									GL11.glDepthMask(true);
+									GL11.glEnable(3553);
+									GL11.glDisable(3042);
+									GL11.glEnable(3008);
+								}
+
+								GL11.glBlendFunc(770, 771);
+								this.renderer.updateFog();
+								GL11.glEnable(3553);
+								GL11.glEnable(3042);
+								GL11.glBindTexture(3553, this.textureManager.load("/water.png"));
+								GL11.glCallList(this.levelRenderer.listId + 1);
+								GL11.glDisable(3042);
+								GL11.glEnable(3042);
+								GL11.glColorMask(false, false, false, false);
+								GL11.glColorMask(true, true, true, true);
+								if (this.settings.anaglyph) {
+									if (var77 == 0) {
+										GL11.glColorMask(false, true, true, false);
+									} else {
+										GL11.glColorMask(true, false, false, false);
+									}
+								}
+
+								var120 = this.levelRenderer.sortChunks(this.player, 1);
+								if (var120 > 0) {
+									GL11.glBindTexture(3553, this.textureManager.load("/terrain.png"));
+								}
+
+								GL11.glDepthMask(true);
+								GL11.glDisable(3042);
+								GL11.glDisable(2912);
+								if (this.raining) {
+									var104 = (int) this.player.x;
+									var108 = (int) this.player.y;
+									var114 = (int) this.player.z;
+									WorldRenderer var84 = tess.getWorldRenderer();
+									GL11.glDisable(2884);
+									GL11.glNormal3f(0.0F, 1.0F, 0.0F);
+									GL11.glEnable(3042);
+									GL11.glBlendFunc(770, 771);
+									GL11.glBindTexture(3553, this.textureManager.load("/rain.png"));
+
+									for (var110 = var104 - 5; var110 <= var104 + 5; ++var110) {
+										for (var122 = var114 - 5; var122 <= var114 + 5; ++var122) {
+											var120 = this.level.getHighestTile(var110, var122);
+											var86 = var108 - 5;
+											var125 = var108 + 5;
+											if (var86 < var120) {
+												var86 = var120;
+											}
+
+											if (var125 < var120) {
+												var125 = var120;
+											}
+
+											if (var86 != var125) {
+												var74 = ((float) ((this.renderer.levelTicks + var110 * 3121
+														+ var122 * 418711) % 32) + this.timer.delta) / 32.0F;
+												float var124 = (float) var110 + 0.5F - this.player.x;
+												var35 = (float) var122 + 0.5F - this.player.z;
+												float var92 = MathHelper.sqrt(var124 * var124 + var35 * var35)
+														/ (float) 5;
+												GL11.glColor4f(1.0F, 1.0F, 1.0F, (1.0F - var92 * var92) * 0.7F);
+												var84.begin(7, VertexFormat.POSITION_TEX);
+												var84.pos((float) var110, (float) var86, (float) var122)
+														.tex(0.0F, (float) var86 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												var84.pos((float) (var110 + 1), (float) var86, (float) (var122 + 1))
+														.tex(2.0F, (float) var86 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												var84.pos((float) (var110 + 1), (float) var125, (float) (var122 + 1))
+														.tex(2.0F, (float) var125 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												var84.pos((float) var110, (float) var125, (float) var122)
+														.tex(0.0F, (float) var125 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												var84.pos((float) var110, (float) var86, (float) (var122 + 1))
+														.tex(0.0F, (float) var86 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												var84.pos((float) (var110 + 1), (float) var86, (float) var122)
+														.tex(2.0F, (float) var86 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												var84.pos((float) (var110 + 1), (float) var125, (float) var122)
+														.tex(2.0F, (float) var125 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												var84.pos((float) var110, (float) var125, (float) (var122 + 1))
+														.tex(0.0F, (float) var125 * 2.0F / 8.0F + var74 * 2.0F)
+														.endVertex();
+												tess.draw();
+											}
+										}
+									}
+
+									GL11.glEnable(2884);
+									GL11.glDisable(3042);
+								}
+
+								if (this.renderer.entity != null) {
+									this.renderer.entity.renderHover(this.textureManager, this.timer.delta);
+								}
+
+								GL11.glClear(256);
+								GL11.glLoadIdentity();
+								if (this.settings.anaglyph) {
+									GL11.glTranslatef((float) ((var77 << 1) - 1) * 0.1F, 0.0F, 0.0F);
+								}
+
+								this.renderer.hurtEffect(this.timer.delta);
+								if (this.settings.viewBobbing) {
+									this.renderer.applyBobbing(this.timer.delta);
+								}
+
+								var117 = this.renderer.heldBlock.lastPos
+										+ (this.renderer.heldBlock.pos - this.renderer.heldBlock.lastPos)
+												* this.timer.delta;
+								GL11.glPushMatrix();
+								GL11.glRotatef(
+										this.player.xRotO + (this.player.xRot - this.player.xRotO) * this.timer.delta,
+										1.0F, 0.0F, 0.0F);
+								GL11.glRotatef(
+										this.player.yRotO + (this.player.yRot - this.player.yRotO) * this.timer.delta,
+										0.0F, 1.0F, 0.0F);
+								this.renderer.setLighting(true);
+								GL11.glPopMatrix();
+								GL11.glPushMatrix();
+								var69 = 0.8F;
+								if (this.renderer.heldBlock.moving) {
+									var33 = MathHelper.sin(
+											(var74 = ((float) this.renderer.heldBlock.offset + this.timer.delta) / 7.0F)
+													* 3.1415927F);
+									GL11.glTranslatef(-MathHelper.sin(MathHelper.sqrt(var74) * 3.1415927F) * 0.4F,
+											MathHelper.sin(MathHelper.sqrt(var74) * 3.1415927F * 2.0F) * 0.2F,
+											-var33 * 0.2F);
+								}
+
+								GL11.glTranslatef(0.7F * var69, -0.65F * var69 - (1.0F - var117) * 0.6F, -0.9F * var69);
+								GL11.glRotatef(45.0F, 0.0F, 1.0F, 0.0F);
+								GL11.glEnable(2977);
+								if (this.renderer.heldBlock.moving) {
+									var33 = MathHelper.sin(
+											(var74 = ((float) this.renderer.heldBlock.offset + this.timer.delta) / 7.0F)
+													* var74 * 3.1415927F);
+									GL11.glRotatef(MathHelper.sin(MathHelper.sqrt(var74) * 3.1415927F) * 80.0F, 0.0F,
+											1.0F, 0.0F);
+									GL11.glRotatef(-var33 * 20.0F, 1.0F, 0.0F, 0.0F);
+								}
+
+								GL11.glColor4f(var74 = this.level.getBrightness((int) this.player.x,
+										(int) this.player.y, (int) this.player.z), var74, var74, 1.0F);
+								WorldRenderer var123 = tess.getWorldRenderer();
+								if (this.renderer.heldBlock.block != null) {
+									var34 = 0.4F;
+									GL11.glScalef(0.4F, var34, var34);
+									GL11.glTranslatef(-0.5F, -0.5F, -0.5F);
+									GL11.glBindTexture(3553, this.textureManager.load("/terrain.png"));
+									this.renderer.heldBlock.block.renderPreview(var123, tess);
+								} else {
+									this.player.bindTexture(this.textureManager);
+									GL11.glScalef(1.0F, -1.0F, -1.0F);
+									GL11.glTranslatef(0.0F, 0.2F, 0.0F);
+									GL11.glRotatef(-120.0F, 0.0F, 0.0F, 1.0F);
+									GL11.glScalef(1.0F, 1.0F, 1.0F);
+									var34 = 0.0625F;
+									ModelPart var127 = this.player.getModel().leftArm;
+									if (!(var127 = this.player.getModel().leftArm).compiled) {
+										var127.render(var34);
+									}
+
+									GL11.glCallList(var127.displayList);
+								}
+
+								GL11.glDisable(2977);
+								GL11.glPopMatrix();
+								this.renderer.setLighting(false);
+								if (!this.settings.anaglyph) {
+									break;
+								}
+
+								++var77;
 							}
-							var20.flush();
-							} catch (Exception var13) {
-							var16.minecraft.setScreen(new ErrorScreen("Disconnected!", "You\'ve lost connection to the server"));
-							var16.minecraft.hideGui = false;
-							var13.printStackTrace();
-							var16.connection.disconnect();
-							var16.minecraft.connectionManager = null;
+
+							this.hud.render(this.timer.delta, this.currentScreen != null, var94, var70);
+						} else {
+							GL11.glViewport(0, 0, this.width, this.height);
+							GL11.glClearColor(0.0F, 0.0F, 0.0F, 0.0F);
+							GL11.glClear(16640);
+							GL11.glMatrixMode(5889);
+							GL11.glLoadIdentity();
+							GL11.glMatrixMode(5888);
+							GL11.glLoadIdentity();
+							this.renderer.enableGuiMode();
 						}
+
+						if (this.currentScreen != null) {
+							this.currentScreen.render(var94, var70);
+						}
+
+						this.updateDisplay();
 					}
 				}
-				Player var27 = this.player;
-				var16 = this.connectionManager;
-				if(var16.isConnected()) {
-					int var22 = (int)(var27.x * 32.0F);
-					var4 = (int)(var27.y * 32.0F);
-					var28 = (int)(var27.z * 32.0F);
-					int var42 = (int)(var27.yRot * 256.0F / 360.0F) & 255;
-					var17 = (int)(var27.xRot * 256.0F / 360.0F) & 255;
-					var16.connection.sendPacket(Packet.PLAYER_TELEPORT, new Object[]{Integer.valueOf(-1), Integer.valueOf(var22), Integer.valueOf(var4), Integer.valueOf(var28), Integer.valueOf(var42), Integer.valueOf(var17)});
+
+				checkGLError("Post render");
+				++var15;
+
+				while (EagRuntime.steadyTimeMillis() >= var13 + 1000L) {
+					this.debug = var15 + " fps, " + Chunk.chunkUpdates + " chunk updates";
+					Chunk.chunkUpdates = 0;
+					var13 += 1000L;
+					var15 = 0;
 				}
 			}
 		}
 
+		this.shutdown();
+	}
 
-		LevelRenderer var25;
-		if(this.screen == null || this.screen.allowUserInput) {
-			if(Mouse.isMouseGrabbed() || Mouse.isActuallyGrabbed()) {
-				this.mouseGrabbed = true;
-			}
-			label251:
-			while(Mouse.next()) {
-				int var18 = Mouse.getEventDWheel();
-				if(var18 != 0) {
-					this.player.inventory.scrollHotbar(var18);
+	public void updateDisplay() {
+		if (Display.isVSyncSupported()) {
+			Display.setVSync(true);
+		} else {
+			this.settings.limitFramerate = false;
+		}
+		Display.update(0);
+		this.checkWindowResize();
+	}
+
+	protected void checkWindowResize() {
+		float dpiFetch = -1.0f;
+		if ((Display.wasResized() || (dpiFetch = Math.max(Display.getDPI(), 1.0f)) != this.dpi)) {
+			int i = this.width;
+			int j = this.height;
+			float f = this.dpi;
+			this.width = Display.getWidth();
+			this.height = Display.getHeight();
+			this.dpi = dpiFetch == -1.0f ? Math.max(Display.getDPI(), 1.0f) : dpiFetch;
+			if (this.width != i || this.height != j || this.dpi != f) {
+				if (this.width <= 0) {
+					this.width = 1;
 				}
 
-				if(this.screen == null) {
-					if(!this.mouseGrabbed && Mouse.getEventButtonState()) {
+				if (this.height <= 0) {
+					this.height = 1;
+				}
+
+				this.width = Math.max(1, width);
+				this.height = Math.max(1, height);
+				if (this.currentScreen != null) {
+					this.setCurrentScreen(currentScreen);
+				}
+
+				this.hud = new HUDScreen(this, width, height);
+				if (this.currentScreen == null) {
+					this.hasMouse = true;
+					Mouse.setGrabbed(true);
+				}
+				this.progressBar = new ProgressBarDisplay(this);
+			}
+		}
+	}
+
+	public int getLimitFramerate() {
+		return this.level == null && this.currentScreen != null ? 30 : 260;
+	}
+
+	public boolean isFramerateLimitBelowMax() {
+		return (float) this.getLimitFramerate() < 260;
+	}
+
+	public final void grabMouse() {
+		if (!this.hasMouse) {
+			this.hasMouse = true;
+			if (!this.levelLoaded) {
+				Mouse.setGrabbed(true);
+			}
+
+			this.setCurrentScreen((GuiScreen) null);
+			this.lastClick = this.ticks + 10000;
+		}
+	}
+
+	public final void pause() {
+		if (this.currentScreen == null) {
+			this.setCurrentScreen(new PauseScreen());
+		}
+	}
+
+	private void onMouseClick(int var1) {
+		if (var1 != 0 || this.blockHitTime <= 0) {
+			HeldBlock var2;
+			if (var1 == 0) {
+				var2 = this.renderer.heldBlock;
+				this.renderer.heldBlock.offset = -1;
+				var2.moving = true;
+			}
+
+			int var3;
+			if (var1 == 1 && (var3 = this.player.inventory.getSelected()) > 0
+					&& this.gamemode.useItem(this.player, var3)) {
+				var2 = this.renderer.heldBlock;
+				this.renderer.heldBlock.pos = 0.0F;
+			} else if (this.selected == null) {
+				if (var1 == 0 && !(this.gamemode instanceof CreativeGameMode)) {
+					this.blockHitTime = 10;
+				}
+
+			} else {
+				if (this.selected.entityPos == 1) {
+					if (var1 == 0) {
+						this.selected.entity.hurt(this.player, 4);
+						return;
+					}
+				} else if (this.selected.entityPos == 0) {
+					var3 = this.selected.x;
+					int var4 = this.selected.y;
+					int var5 = this.selected.z;
+					if (var1 != 0) {
+						if (this.selected.face == 0) {
+							--var4;
+						}
+
+						if (this.selected.face == 1) {
+							++var4;
+						}
+
+						if (this.selected.face == 2) {
+							--var5;
+						}
+
+						if (this.selected.face == 3) {
+							++var5;
+						}
+
+						if (this.selected.face == 4) {
+							--var3;
+						}
+
+						if (this.selected.face == 5) {
+							++var3;
+						}
+					}
+
+					Block var6 = Block.blocks[this.level.getTile(var3, var4, var5)];
+					if (var1 == 0) {
+						if (var6 != Block.BEDROCK || this.player.userType >= 100) {
+							this.gamemode.hitBlock(var3, var4, var5);
+							return;
+						}
+					} else {
+						int var10;
+						if ((var10 = this.player.inventory.getSelected()) <= 0) {
+							return;
+						}
+
+						Block var8;
+						AABB var9;
+						if (((var8 = Block.blocks[this.level.getTile(var3, var4, var5)]) == null || var8 == Block.WATER
+								|| var8 == Block.STATIONARY_WATER || var8 == Block.LAVA
+								|| var8 == Block.STATIONARY_LAVA)
+								&& ((var9 = Block.blocks[var10].getCollisionBox(var3, var4, var5)) == null
+										|| (this.player.bb.intersects(var9) ? false : this.level.isFree(var9)))) {
+							if (!this.gamemode.canPlace(var10)) {
+								return;
+							}
+
+							if (this.isOnline()) {
+								this.networkManager.sendBlockChange(var3, var4, var5, var1, var10);
+							}
+
+							this.level.netSetTile(var3, var4, var5, var10);
+							var2 = this.renderer.heldBlock;
+							this.renderer.heldBlock.pos = 0.0F;
+							Block.blocks[var10].onPlace(this.level, var3, var4, var5);
+						}
+					}
+				}
+
+			}
+		}
+	}
+
+	private void tick() {
+		this.levelSave();
+		if (this.settings.music) {
+			SoundManager var2 = this.sound;
+			if (EagRuntime.steadyTimeMillis() > var2.lastMusic && var2.playMusic("calm")) {
+				var2.lastMusic = EagRuntime.steadyTimeMillis() + (long) var2.random.nextInt(900000) + 300000L;
+			}
+		}
+
+		this.gamemode.spawnMob();
+		HUDScreen var17 = this.hud;
+		++this.hud.ticks;
+
+		int var16;
+		for (var16 = 0; var16 < var17.chat.size(); ++var16) {
+			++((ChatLine) var17.chat.get(var16)).time;
+		}
+
+		GL11.glBindTexture(3553, this.textureManager.load("/terrain.png"));
+		TextureManager var19 = this.textureManager;
+
+		for (var16 = 0; var16 < var19.animations.size(); ++var16) {
+			TextureFX var3;
+			(var3 = (TextureFX) var19.animations.get(var16)).anaglyph = var19.settings.anaglyph;
+			var3.animate();
+			var19.textureBuffer.clear();
+			var19.textureBuffer.put(var3.textureData);
+			var19.textureBuffer.position(0).limit(var3.textureData.length);
+			GL11.glTexSubImage2D(3553, 0, var3.textureId % 16 << 4, var3.textureId / 16 << 4, 16, 16, 6408, 5121,
+					var19.textureBuffer);
+		}
+
+		int var4;
+		int var8;
+		int var40;
+		int var46;
+		int var45;
+		if (this.networkManager != null && !(this.currentScreen instanceof ErrorScreen)) {
+			if (this.networkManager.isConnected()) {
+				if (this.networkManager.successful) {
+					if (this.networkManager.isConnected()) {
+						try {
+							this.networkManager.netHandler.read();
+							var4 = 0;
+
+							// TODO
+							while (this.networkManager.netHandler.in.position() > 0) {
+								this.networkManager.netHandler.in.flip();
+								byte var5 = this.networkManager.netHandler.in.get(0);
+								PacketType var6;
+								if ((var6 = PacketType.packets[var5]) == null) {
+									throw new IOException("Bad command: " + var5);
+								}
+
+								if (this.networkManager.netHandler.in.remaining() < var6.length + 1) {
+									this.networkManager.netHandler.in.compact();
+									break;
+								}
+
+								this.networkManager.netHandler.in.get();
+								Object[] var7 = new Object[var6.params.length];
+
+								for (var8 = 0; var8 < var7.length; ++var8) {
+									var7[var8] = this.networkManager.netHandler.readObject(var6.params[var8]);
+								}
+
+								if (this.networkManager.successful) {
+									if (var6 == PacketType.IDENTIFICATION) {
+										((GuiConnecting) currentScreen).setText(var7[1].toString(), var7[2].toString());
+										this.player.userType = ((Byte) var7[3]).byteValue();
+									} else if (var6 == PacketType.LEVEL_INIT) {
+										this.setLevel((Level) null);
+										this.networkManager.levelData = new EaglerOutputStream();
+									} else if (var6 == PacketType.LEVEL_DATA) {
+										short var11 = ((Short) var7[0]).shortValue();
+										byte[] var12 = (byte[]) ((byte[]) var7[1]);
+										byte var13 = ((Byte) var7[2]).byteValue();
+										((GuiConnecting) currentScreen).setProgress(var13);
+										this.networkManager.levelData.write(var12, 0, var11);
+									} else if (var6 == PacketType.LEVEL_FINALIZE) {
+										try {
+											this.networkManager.levelData.close();
+										} catch (IOException var14) {
+											var14.printStackTrace();
+										}
+
+										byte[] var51 = LevelIO.decompress(
+												new EaglerInputStream(this.networkManager.levelData.toByteArray()));
+										this.networkManager.levelData = null;
+										short var55 = ((Short) var7[0]).shortValue();
+										short var63 = ((Short) var7[1]).shortValue();
+										short var21 = ((Short) var7[2]).shortValue();
+										Level var30;
+										(var30 = new Level()).setNetworkMode(true);
+										var30.setData(var55, var63, var21, var51);
+										this.setLevel(var30);
+										this.online = false;
+										this.networkManager.levelLoaded = true;
+										this.setCurrentScreen(new PauseScreen());
+									} else if (var6 == PacketType.BLOCK_CHANGE) {
+										if (this.level != null) {
+											this.level.netSetTile(((Short) var7[0]).shortValue(),
+													((Short) var7[1]).shortValue(), ((Short) var7[2]).shortValue(),
+													((Byte) var7[3]).byteValue());
+										}
+									} else {
+										byte var9;
+										String var34;
+										NetworkPlayer var33;
+										short var36;
+										short var10004;
+										byte var10001;
+										short var47;
+										short var10003;
+										if (var6 == PacketType.SPAWN_PLAYER) {
+											var10001 = ((Byte) var7[0]).byteValue();
+											String var10002 = (String) var7[1];
+											var10003 = ((Short) var7[2]).shortValue();
+											var10004 = ((Short) var7[3]).shortValue();
+											short var10005 = ((Short) var7[4]).shortValue();
+											byte var10006 = ((Byte) var7[5]).byteValue();
+											byte var58 = ((Byte) var7[6]).byteValue();
+											var9 = var10006;
+											short var10 = var10005;
+											var47 = var10004;
+											var36 = var10003;
+											var34 = var10002;
+											var5 = var10001;
+											if (var5 >= 0) {
+												var9 = (byte) (var9 + 128);
+												var47 = (short) (var47 - 22);
+												var33 = new NetworkPlayer(this, var5, var34, var36, var47, var10,
+														(float) (var9 * 360) / 256.0F, (float) (var58 * 360) / 256.0F);
+												this.networkManager.players.put(Byte.valueOf(var5), var33);
+												this.level.addEntity(var33);
+											} else {
+												this.level.setSpawnPos(var36 / 32, var47 / 32, var10 / 32,
+														(float) (var9 * 320 / 256));
+												this.player.moveTo((float) var36 / 32.0F, (float) var47 / 32.0F,
+														(float) var10 / 32.0F, (float) (var9 * 360) / 256.0F,
+														(float) (var58 * 360) / 256.0F);
+											}
+										} else {
+											byte var53;
+											NetworkPlayer var61;
+											byte var69;
+											if (var6 == PacketType.POSITION_ROTATION) {
+												var10001 = ((Byte) var7[0]).byteValue();
+												short var66 = ((Short) var7[1]).shortValue();
+												var10003 = ((Short) var7[2]).shortValue();
+												var10004 = ((Short) var7[3]).shortValue();
+												var69 = ((Byte) var7[4]).byteValue();
+												var9 = ((Byte) var7[5]).byteValue();
+												var53 = var69;
+												var47 = var10004;
+												var36 = var10003;
+												short var38 = var66;
+												var5 = var10001;
+												if (var5 < 0) {
+													this.player.moveTo((float) var38 / 32.0F, (float) var36 / 32.0F,
+															(float) var47 / 32.0F, (float) (var53 * 360) / 256.0F,
+															(float) (var9 * 360) / 256.0F);
+												} else {
+													var53 = (byte) (var53 + 128);
+													var36 = (short) (var36 - 22);
+													if ((var61 = (NetworkPlayer) this.networkManager.players
+															.get(Byte.valueOf(var5))) != null) {
+														var61.teleport(var38, var36, var47,
+																(float) (var53 * 360) / 256.0F,
+																(float) (var9 * 360) / 256.0F);
+													}
+												}
+											} else {
+												byte var37;
+												byte var44;
+												byte var49;
+												byte var65;
+												byte var67;
+												if (var6 == PacketType.POSITION_ROTATION_UPDATE) {
+													var10001 = ((Byte) var7[0]).byteValue();
+													var67 = ((Byte) var7[1]).byteValue();
+													var65 = ((Byte) var7[2]).byteValue();
+													byte var64 = ((Byte) var7[3]).byteValue();
+													var69 = ((Byte) var7[4]).byteValue();
+													var9 = ((Byte) var7[5]).byteValue();
+													var53 = var69;
+													var49 = var64;
+													var44 = var65;
+													var37 = var67;
+													var5 = var10001;
+													if (var5 >= 0) {
+														var53 = (byte) (var53 + 128);
+														if ((var61 = (NetworkPlayer) this.networkManager.players
+																.get(Byte.valueOf(var5))) != null) {
+															var61.queue(var37, var44, var49,
+																	(float) (var53 * 360) / 256.0F,
+																	(float) (var9 * 360) / 256.0F);
+														}
+													}
+												} else if (var6 == PacketType.ROTATION_UPDATE) {
+													var10001 = ((Byte) var7[0]).byteValue();
+													var67 = ((Byte) var7[1]).byteValue();
+													var44 = ((Byte) var7[2]).byteValue();
+													var37 = var67;
+													var5 = var10001;
+													if (var5 >= 0) {
+														var37 = (byte) (var37 + 128);
+														NetworkPlayer var54;
+														if ((var54 = (NetworkPlayer) this.networkManager.players
+																.get(Byte.valueOf(var5))) != null) {
+															var54.queue((float) (var37 * 360) / 256.0F,
+																	(float) (var44 * 360) / 256.0F);
+														}
+													}
+												} else if (var6 == PacketType.POSITION_UPDATE) {
+													var10001 = ((Byte) var7[0]).byteValue();
+													var67 = ((Byte) var7[1]).byteValue();
+													var65 = ((Byte) var7[2]).byteValue();
+													var49 = ((Byte) var7[3]).byteValue();
+													var44 = var65;
+													var37 = var67;
+													var5 = var10001;
+													NetworkPlayer var59;
+													if (var5 >= 0
+															&& (var59 = (NetworkPlayer) this.networkManager.players
+																	.get(Byte.valueOf(var5))) != null) {
+														var59.queue(var37, var44, var49);
+													}
+												} else if (var6 == PacketType.DESPAWN_PLAYER) {
+													var5 = ((Byte) var7[0]).byteValue();
+													if (var5 >= 0
+															&& (var33 = (NetworkPlayer) this.networkManager.players
+																	.remove(Byte.valueOf(var5))) != null) {
+														var33.clear();
+														this.level.removeEntity(var33);
+													}
+												} else if (var6 == PacketType.CHAT_MESSAGE) {
+													var10001 = ((Byte) var7[0]).byteValue();
+													var34 = (String) var7[1];
+													var5 = var10001;
+													if (var5 < 0) {
+														this.hud.addChat(var34);
+													} else {
+														this.networkManager.players.get(Byte.valueOf(var5));
+														this.hud.addChat(var34);
+													}
+												} else if (var6 == PacketType.DISCONNECT) {
+													this.networkManager.netHandler.close();
+													this.setCurrentScreen(
+															new ErrorScreen("Connection lost", (String) var7[0]));
+												} else if (var6 == PacketType.UPDATE_PLAYER_TYPE) {
+													this.player.userType = ((Byte) var7[0]).byteValue();
+												}
+											}
+										}
+									}
+								}
+
+								if (!this.networkManager.isConnected()) {
+									break;
+								}
+
+								this.networkManager.netHandler.in.compact();
+							}
+
+							if (this.networkManager.netHandler.out.position() > 0) {
+								this.networkManager.netHandler.out.flip();
+								this.networkManager.netHandler.write();
+								this.networkManager.netHandler.out.compact();
+							}
+						} catch (Exception var15) {
+							this.setCurrentScreen(
+									new ErrorScreen("Disconnected!", "You\'ve lost connection to the server"));
+							this.online = false;
+							var15.printStackTrace();
+							this.networkManager.netHandler.close();
+							this.networkManager = null;
+						}
+					}
+				}
+
+				Player var28 = this.player;
+				if (this.networkManager.levelLoaded) {
+					int var24 = (int) (var28.x * 32.0F);
+					var4 = (int) (var28.y * 32.0F);
+					var40 = (int) (var28.z * 32.0F);
+					var46 = (int) (var28.yRot * 256.0F / 360.0F) & 255;
+					var45 = (int) (var28.xRot * 256.0F / 360.0F) & 255;
+					this.networkManager.netHandler.send(PacketType.POSITION_ROTATION,
+							new Object[] { Integer.valueOf(-1), Integer.valueOf(var24), Integer.valueOf(var4),
+									Integer.valueOf(var40), Integer.valueOf(var46), Integer.valueOf(var45) });
+				}
+			} else if (this.networkManager.didConnectionClose()) {
+				this.setCurrentScreen(new ErrorScreen("Disconnected!", "You\'ve lost connection to the server"));
+			}
+		}
+
+		if (this.currentScreen == null && this.player != null && this.player.health <= 0) {
+			this.setCurrentScreen((GuiScreen) null);
+		}
+
+		if (this.currentScreen == null || this.currentScreen.grabsMouse) {
+			int var25;
+			while (Mouse.next()) {
+				if ((var25 = Mouse.getEventDWheel()) != 0) {
+					this.player.inventory.swapPaint(var25);
+				}
+
+				if (this.currentScreen == null) {
+					if (!this.hasMouse && Mouse.getEventButtonState()) {
 						this.grabMouse();
 					} else {
-						if(Mouse.getEventButton() == 0 && Mouse.getEventButtonState()) {
-							this.clickMouse();
-							this.prevFrameTime = this.ticksRan;
+						if (Mouse.getEventButton() == 0 && Mouse.getEventButtonState()) {
+							this.onMouseClick(0);
+							this.lastClick = this.ticks;
 						}
 
-						if(Mouse.getEventButton() == 1 && Mouse.getEventButtonState()) {
-							this.editMode = (this.editMode + 1) % 2;
+						if (Mouse.getEventButton() == 1 && Mouse.getEventButtonState()) {
+							this.onMouseClick(1);
+							this.lastClick = this.ticks;
 						}
 
-						if(Mouse.getEventButton() == 2 && Mouse.getEventButtonState() && this.hitResult != null) {
-							var17 = this.level.getTile(this.hitResult.x, this.hitResult.y, this.hitResult.z);
-							if(var17 == Tile.grass.id) {
-								var17 = Tile.dirt.id;
+						if (Mouse.getEventButton() == 2 && Mouse.getEventButtonState() && this.selected != null) {
+							if ((var16 = this.level.getTile(this.selected.x, this.selected.y,
+									this.selected.z)) == Block.GRASS.id) {
+								var16 = Block.DIRT.id;
 							}
 
-							Inventory var24 = this.player.inventory;
-							var28 = var24.containsTileAt(var17);
-							if(var28 >= 0) {
-								var24.selectedSlot = var28;
-							} else if(var17 > 0 && User.creativeTiles.contains(Tile.tiles[var17])) {
-								var24.setTile(Tile.tiles[var17]);
+							if (var16 == Block.DOUBLE_SLAB.id) {
+								var16 = Block.SLAB.id;
 							}
+
+							if (var16 == Block.BEDROCK.id) {
+								var16 = Block.STONE.id;
+							}
+
+							this.player.inventory.grabTexture(var16, this.gamemode instanceof CreativeGameMode);
 						}
 					}
 				}
 
-				if(this.screen != null) {
-					this.screen.updateMouseEvents();
+				if (this.currentScreen != null) {
+					this.currentScreen.mouseEvent();
 				}
 			}
 
-			label298:
-			while(true) {
-				do {
-					do {
-						if(!Keyboard.next()) {
-							if(this.screen == null && Mouse.isButtonDown(0) && (float)(this.ticksRan - this.prevFrameTime) >= this.timer.ticksPerSecond / 4.0F && this.mouseGrabbed) {
-								this.clickMouse();
-								this.prevFrameTime = this.ticksRan;
-							}
-							break label298;
-						}
+			if (this.blockHitTime > 0) {
+				--this.blockHitTime;
+			}
 
-						this.player.setKey(Keyboard.getEventKey(), Keyboard.getEventKeyState());
-					} while(!Keyboard.getEventKeyState());
-
-					if(this.screen != null) {
-						this.screen.updateKeyboardEvents();
+			while (Keyboard.next()) {
+				this.player.setKey(Keyboard.getEventKey(), Keyboard.getEventKeyState());
+				if (Keyboard.getEventKeyState()) {
+					if (this.currentScreen != null) {
+						this.currentScreen.keyboardEvent();
 					}
 
-					if(this.screen == null) {
-						if(Keyboard.getEventKey() == Keyboard.KEY_ESCAPE) {
-							this.pauseGame();
+					if (this.currentScreen == null) {
+						if (Keyboard.getEventKey() == 1) {
+							this.pause();
 						}
 
-						if(Keyboard.getEventKey() == this.options.load.key) {
-							this.player.resetPos();
+						if (this.gamemode instanceof CreativeGameMode) {
+							if (Keyboard.getEventKey() == this.settings.loadLocationKey.key) {
+								this.player.resetPos();
+							}
+
+							if (Keyboard.getEventKey() == this.settings.saveLocationKey.key) {
+								this.level.setSpawnPos((int) this.player.x, (int) this.player.y, (int) this.player.z,
+										this.player.yRot);
+								this.player.resetPos();
+							}
 						}
 
-						if(Keyboard.getEventKey() == this.options.save.key) {
-							this.level.setSpawnPos((int)this.player.x, (int)this.player.y, (int)this.player.z, this.player.yRot);
-							this.player.resetPos();
+						Keyboard.getEventKey();
+						if (Keyboard.getEventKey() == 63) {
+							this.raining = !this.raining;
 						}
 
-						if(Keyboard.getEventKey() == Keyboard.KEY_G && this.connectionManager == null && this.level.entities.size() < 256) {
-							this.level.entities.add(new Zombie(this.level, this.player.x, this.player.y, this.player.z));
+						if (Keyboard.getEventKey() == 15 && this.gamemode instanceof SurvivalGameMode
+								&& this.player.arrows > 0) {
+							this.level.addEntity(new Arrow(this.level, this.player, this.player.x, this.player.y,
+									this.player.z, this.player.yRot, this.player.xRot, 1.2F));
+							--this.player.arrows;
 						}
 
-						if(Keyboard.getEventKey() == this.options.build.key) {
-							this.setScreen(new InventoryScreen());
+						if (Keyboard.getEventKey() == this.settings.buildKey.key) {
+							this.gamemode.openInventory();
 						}
 
-						if(Keyboard.getEventKey() == this.options.chat.key && this.connectionManager != null && this.connectionManager.isConnected()) {
+						if (Keyboard.getEventKey() == this.settings.chatKey.key && this.networkManager != null
+								&& this.networkManager.isConnected()) {
 							this.player.releaseAllKeys();
-							this.setScreen(new ChatScreen());
+							this.setCurrentScreen(new ChatInputScreen());
+						}
+
+						if (Keyboard.getEventKey() == this.settings.gameModeKey.key) {
+							if (!this.isOnline()) {
+								if (this.gamemode instanceof SurvivalGameMode) {
+									GameMode gamemode = new CreativeGameMode(this);
+									gamemode.apply(this.level);
+									this.gamemode = gamemode;
+								} else {
+									GameMode gamemode = new SurvivalGameMode(this);
+									gamemode.apply(this.level);
+									this.gamemode = gamemode;
+								}
+							}
 						}
 					}
 
-					for(int var18 = 0; var18 < 9; ++var18) {
-						if(Keyboard.getEventKey() == var18 + 2) {
-							this.player.inventory.selectedSlot = var18;
+					for (var25 = 0; var25 < 9; ++var25) {
+						if (Keyboard.getEventKey() == var25 + 2) {
+							this.player.inventory.selected = var25;
 						}
 					}
-				} while(Keyboard.getEventKey() != this.options.toggleFog.key);
 
-				this.options.setOption(4, !Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) && !Keyboard.isKeyDown(Keyboard.KEY_RSHIFT) ? 1 : -1);
+					if (Keyboard.getEventKey() == this.settings.toggleFogKey.key) {
+						this.settings.toggleSetting(4, !Keyboard.isKeyDown(42) && !Keyboard.isKeyDown(54) ? 1 : -1);
+					}
+				}
+			}
+
+			if (this.currentScreen == null) {
+				if (Mouse.isButtonDown(0) && (float) (this.ticks - this.lastClick) >= this.timer.tps / 4.0F
+						&& this.hasMouse) {
+					this.onMouseClick(0);
+					this.lastClick = this.ticks;
+				}
+
+				if (Mouse.isButtonDown(1) && (float) (this.ticks - this.lastClick) >= this.timer.tps / 4.0F
+						&& this.hasMouse) {
+					this.onMouseClick(1);
+					this.lastClick = this.ticks;
+				}
+			}
+
+			boolean var26 = this.currentScreen == null && Mouse.isButtonDown(0) && this.hasMouse;
+			if (!this.gamemode.instantBreak && this.blockHitTime <= 0) {
+				if (var26 && this.selected != null && this.selected.entityPos == 0) {
+					var4 = this.selected.x;
+					var40 = this.selected.y;
+					var46 = this.selected.z;
+					this.gamemode.hitBlock(var4, var40, var46, this.selected.face);
+				} else {
+					this.gamemode.resetHits();
+				}
 			}
 		}
 
-		if(this.screen != null) {
-			this.prevFrameTime = this.ticksRan + 10000;
+		if (this.currentScreen != null) {
+			this.lastClick = this.ticks + 10000;
 		}
 
-		if(this.screen != null) {
-			this.screen.updateEvents();
-			if(this.screen != null) {
-				this.screen.tick();
+		if (this.currentScreen != null) {
+			this.currentScreen.doInput();
+			if (this.currentScreen != null) {
+				this.currentScreen.tick();
 			}
 		}
-		if(this.connectionManager != null) {
-			this.connectionManager.tick();
-		}
-		if(this.level != null) {
-			var25 = this.levelRenderer;
-			++var25.cloudTickCounter;
+
+		if (this.level != null) {
+			++this.renderer.levelTicks;
+			HeldBlock var41 = this.renderer.heldBlock;
+			this.renderer.heldBlock.lastPos = var41.pos;
+			if (var41.moving) {
+				++var41.offset;
+				if (var41.offset == 7) {
+					var41.offset = 0;
+					var41.moving = false;
+				}
+			}
+
+			var4 = this.player.inventory.getSelected();
+			Block var43 = null;
+			if (var4 > 0) {
+				var43 = Block.blocks[var4];
+			}
+
+			float var48 = 0.4F;
+			float var50;
+			if ((var50 = (var43 == var41.block ? 1.0F : 0.0F) - var41.pos) < -var48) {
+				var50 = -var48;
+			}
+
+			if (var50 > var48) {
+				var50 = var48;
+			}
+
+			var41.pos += var50;
+			if (var41.pos < 0.1F) {
+				var41.block = var43;
+			}
+
+			if (this.raining) {
+				var40 = (int) this.player.x;
+				var46 = (int) this.player.y;
+				var45 = (int) this.player.z;
+
+				for (var8 = 0; var8 < 50; ++var8) {
+					int var60 = var40 + this.level.random.nextInt(9) - 4;
+					int var52 = var45 + this.level.random.nextInt(9) - 4;
+					int var57;
+					if ((var57 = this.level.getHighestTile(var60, var52)) <= var46 + 4 && var57 >= var46 - 4) {
+						float var56 = this.level.random.nextFloat();
+						float var62 = this.level.random.nextFloat();
+						this.particleManager.spawnParticle(new WaterDropParticle(this.level, (float) var60 + var56,
+								(float) var57 + 0.1F, (float) var52 + var62));
+					}
+				}
+			}
+
+			++this.levelRenderer.ticks;
 			this.level.tickEntities();
-			if(!this.isMultiplayer()) {
+			if (!this.isOnline()) {
 				this.level.tick();
 			}
 
-			this.particleEngine.tick();
-			this.player.tick();
-			if(this.connectionManager == null) {
-				levelSave();
-			}
+			this.particleManager.tick();
+		}
+
+	}
+
+	public int ticksUntilSave = 600;
+
+	private void levelSave() {
+		if (this.isOnline()) {
+			return;
+		}
+
+		if (this.level == null) {
+			ticksUntilSave = this.ticks + 600;
+		}
+
+		if (this.ticks >= this.ticksUntilSave) {
+			LevelUtils.save();
+			ticksUntilSave = this.ticks + 600;
 		}
 	}
 
-	private boolean isMultiplayer() {
-		return this.connectionManager != null;
+	public final boolean isOnline() {
+		return this.networkManager != null;
 	}
 
 	public final void generateLevel(int var1) {
-		String var2 = this.user != null ? this.user.name : "anonymous";
-		this.setLevel(this.levelGen.generateLevel(var2, 128 << var1, 128 << var1, 64));
+		LevelStorageManager.deleteLevelData();
+		String var2 = this.session != null ? this.session.username : "anonymous";
+		Level var4 = (new LevelGenerator(this.progressBar)).generate(var2, 128 << var1, 128 << var1, 64);
+		this.gamemode.prepareLevel(var4);
+		this.setLevel(var4);
+		LevelUtils.save();
 	}
 
 	public final void setLevel(Level var1) {
 		this.level = var1;
-		if(var1 != null) {
-			var1.rendererContext = this;
-		}
-
-		if(this.levelRenderer != null) {
-			LevelRenderer var2 = this.levelRenderer;
-			if(var2.level != null) {
-				var2.level.removeListener(var2);
+		if (var1 != null) {
+			var1.initTransient();
+			this.gamemode.apply(var1);
+			var1.font = this.fontRenderer;
+			var1.rendererContext$5cd64a7f = this;
+			if (!this.isOnline()) {
+				this.player = (Player) var1.findSubclassOf(Player.class);
+			} else if (this.player != null) {
+				this.player.resetPos();
+				this.gamemode.preparePlayer(this.player);
+				if (var1 != null) {
+					var1.player = this.player;
+					var1.addEntity(this.player);
+				}
 			}
-
-			var2.level = var1;
-			if(var1 != null) {
-				var1.addListener(var2);
-				var2.compileSurroundingGround();
-			}
 		}
 
-		if(this.particleEngine != null) {
-			ParticleEngine var4 = this.particleEngine;
-			var4.particles.clear();
-		}
-
-		if(this.player != null) {
-			this.player.setLevel(var1);
+		if (this.player == null) {
+			this.player = new Player(var1);
 			this.player.resetPos();
+			boolean b = LevelUtils.loadPlayer(this.player) && !this.isOnline();
+			if (!b) {
+				this.gamemode.preparePlayer(this.player);
+			}
+			if (var1 != null) {
+				var1.player = this.player;
+			}
+		}
+
+		if (this.player != null) {
+			this.player.input = new InputHandlerImpl(this.settings);
+			this.gamemode.apply(this.player);
+		}
+
+		if (this.levelRenderer != null) {
+			LevelRenderer var3 = this.levelRenderer;
+			if (this.levelRenderer.level != null) {
+				var3.level.removeListener(var3);
+			}
+
+			var3.level = var1;
+			if (var1 != null) {
+				var1.addListener(var3);
+				var3.refresh();
+			}
+		}
+
+		if (this.particleManager != null) {
+			ParticleManager var5 = this.particleManager;
+			if (var1 != null) {
+				var1.particleEngine = var5;
+			}
+
+			for (int var4 = 0; var4 < 2; ++var4) {
+				var5.particles.get(var4).clear();
+			}
 		}
 
 		System.gc();
 	}
-	
-	static enum OS {
-		linux,
-		solaris,
-		windows,
-		macos,
-		unknown;
+
+	public void startNetworkManager(String serverIP, SessionData session) {
+		this.gamemode = new CreativeGameMode(this);
+		this.networkManager = new NetworkManager(this, serverIP, session.username, session.mppass);
+		this.setCurrentScreen(new GuiConnecting(serverIP, session.username, session.mppass));
+		this.server = serverIP;
+		this.session = session;
+	}
+
+	public static Minecraft getMinecraft() {
+		return mc;
 	}
 }

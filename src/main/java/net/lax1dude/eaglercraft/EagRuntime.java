@@ -17,6 +17,7 @@ import org.apache.logging.log4j.Logger;
 
 import net.lax1dude.eaglercraft.internal.EnumPlatformANGLE;
 import net.lax1dude.eaglercraft.internal.EnumPlatformAgent;
+import net.lax1dude.eaglercraft.internal.EnumPlatformOS;
 import net.lax1dude.eaglercraft.internal.EnumPlatformType;
 import net.lax1dude.eaglercraft.internal.FileChooserResult;
 import net.lax1dude.eaglercraft.internal.IClientConfigAdapter;
@@ -49,6 +50,7 @@ public class EagRuntime {
 	private static boolean offlineDownloadURL = false;
 	private static EnumPlatformAgent userAgent = null;
 	private static String userAgentString = null;
+	private static EnumPlatformOS operatingSystem = null;
 	private static EnumPlatformANGLE angleBackend = null;
 
 	public static String getVersion() {
@@ -62,10 +64,10 @@ public class EagRuntime {
 		offlineDownloadURL = PlatformRuntime.isOfflineDownloadURL();
 		userAgent = PlatformRuntime.getPlatformAgent();
 		userAgentString = PlatformRuntime.getUserAgentString();
+		operatingSystem = PlatformRuntime.getPlatformOS();
 		angleBackend = PlatformRuntime.getPlatformANGLE();
 		EaglercraftGPU.warmUpCache();
 		PlatformRuntime.postCreate();
-		Display.checkContextLost();
 	}
 
 	public static void destroy() {
@@ -82,6 +84,10 @@ public class EagRuntime {
 
 	public static String getUserAgentString() {
 		return userAgentString;
+	}
+
+	public static EnumPlatformOS getPlatformOS() {
+		return operatingSystem;
 	}
 
 	public static EnumPlatformANGLE getPlatformANGLE() {
@@ -332,6 +338,10 @@ public class EagRuntime {
 
 	public static void downloadFileWithName(String fileName, byte[] fileContents) {
 		PlatformApplication.downloadFileWithName(fileName, fileContents);
+	}
+
+	public static void openCreditsPopup(String text) {
+		PlatformApplication.openCreditsPopup(text);
 	}
 
 	public static String currentThreadName() {

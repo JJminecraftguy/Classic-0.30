@@ -1,47 +1,49 @@
 package com.mojang.minecraft.gui;
 
-import com.mojang.minecraft.Options;
+import com.mojang.minecraft.GameSettings;
 
-public final class OptionsScreen extends Screen {
-	private Screen parent;
+public final class OptionsScreen extends GuiScreen {
+
+	private GuiScreen parent;
 	private String title = "Options";
-	private Options options;
+	private GameSettings settings;
 
-	public OptionsScreen(Screen var1, Options var2) {
+	public OptionsScreen(GuiScreen var1, GameSettings var2) {
 		this.parent = var1;
-		this.options = var2;
+		this.settings = var2;
 	}
 
-	public final void init() {
-		for(int var1 = 0; var1 < 5; ++var1) {
-			this.buttons.add(new Button(var1, this.width / 2 - 100, this.height / 6 + var1 * 24, this.options.getOption(var1)));
+	public final void onOpen() {
+		for (int var1 = 0; var1 < this.settings.settingCount; ++var1) {
+			this.buttons.add(new OptionButton(var1, this.width / 2 - 155 + var1 % 2 * 160,
+					this.height / 6 + 24 * (var1 >> 1), this.settings.getSetting(var1)));
 		}
 
-		this.buttons.add(new Button(10, this.width / 2 - 100, this.height / 6 + 120 + 12, "Controls..."));
-		this.buttons.add(new Button(20, this.width / 2 - 100, this.height / 6 + 168, "Done"));
+		this.buttons.add(new Button(100, this.width / 2 - 100, this.height / 6 + 120 + 12, "Controls..."));
+		this.buttons.add(new Button(200, this.width / 2 - 100, this.height / 6 + 168, "Done"));
 	}
 
-	protected final void buttonClicked(Button var1) {
-		if(var1.enabled) {
-			if(var1.id < 5) {
-				this.options.setOption(var1.id, 1);
-				var1.msg = this.options.getOption(var1.id);
+	protected final void onButtonClick(Button var1) {
+		if (var1.active) {
+			if (var1.id < 100) {
+				this.settings.toggleSetting(var1.id, 1);
+				var1.text = this.settings.getSetting(var1.id);
 			}
 
-			if(var1.id == 10) {
-				this.minecraft.setScreen(new ControlsScreen(this, this.options));
+			if (var1.id == 100) {
+				this.minecraft.setCurrentScreen(new ControlsScreen(this, this.settings));
 			}
 
-			if(var1.id == 20) {
-				this.minecraft.setScreen(this.parent);
+			if (var1.id == 200) {
+				this.minecraft.setCurrentScreen(this.parent);
 			}
 
 		}
 	}
 
 	public final void render(int var1, int var2) {
-		fillGradient(0, 0, this.width, this.height, 1610941696, -1607454624);
-		drawCenteredString(this.font, this.title, this.width / 2, 20, 16777215);
+		drawFadingBox(0, 0, this.width, this.height, 1610941696, -1607454624);
+		drawCenteredString(this.fontRenderer, this.title, this.width / 2, 20, 16777215);
 		super.render(var1, var2);
 	}
 }

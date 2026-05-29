@@ -1,17 +1,10 @@
 package com.mojang.minecraft.sound;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.MalformedURLException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 
 import com.mojang.minecraft.Entity;
 import com.mojang.minecraft.Minecraft;
-import com.mojang.minecraft.level.tile.Tile.SoundType;
+import com.mojang.minecraft.level.tile.Tile$SoundType;
 import com.mojang.minecraft.player.Player;
 
 import net.lax1dude.eaglercraft.EagRuntime;
@@ -21,106 +14,99 @@ import net.lax1dude.eaglercraft.internal.IAudioCacheLoader;
 import net.lax1dude.eaglercraft.internal.IAudioHandle;
 import net.lax1dude.eaglercraft.internal.IAudioResource;
 import net.lax1dude.eaglercraft.internal.PlatformAudio;
-import net.peytonsound.SoundPool;
 
 public final class SoundManager {
-	public Map<String, IAudioResource> sounds = new HashMap<String, IAudioResource>();
+
+	private Map<String, IAudioResource> sounds = new HashMap<String, IAudioResource>();
 	private Map<String, IAudioResource> music = new HashMap<String, IAudioResource>();
 	public Random random = new Random();
-	public long lastMusic = System.currentTimeMillis() + 60000L;
-	
+	public long lastMusic = 0;
+	private int lastSongID = 0;
+
 	private IAudioHandle musicHandle;
-	public Minecraft minecraft;
-	
-	public SoundManager(Minecraft minecraft) {
-		this.minecraft = minecraft;
-	}
-	
-	public boolean playMusic() {
-		if(minecraft.options.music) {
-			String music = SoundPool.getRandomMusic();
-			IAudioResource trk = this.music.get(music);
-			if (trk == null) {
+
+	public void playSound(String var2, Entity var3) {
+		try {
+			IAudioResource trk;
+			Tile$SoundType soundType = Tile$SoundType.getSoundType(var2);
+			if (var2 != null) {
+				var2 = var2.replace(".", "/");
+			}
+			String s = "/sounds/blocks/" + Tile$SoundType.mapSound(var2) + (this.random.nextInt(4) + 1) + ".ogg";
+			if (!sounds.containsKey(s)) {
 				if (EagRuntime.getPlatformType() != EnumPlatformType.DESKTOP) {
-					trk = PlatformAudio.loadAudioDataNew(music, false, browserResourceLoader);
+					trk = PlatformAudio.loadAudioDataNew(s, true, browserResourceLoader);
 				} else {
-					trk = PlatformAudio.loadAudioData(music, false);
+					trk = PlatformAudio.loadAudioData(s, true);
 				}
 				if (trk != null) {
-					this.music.put(music, trk);
+					sounds.put(s, trk);
 				}
+			} else {
+				trk = sounds.get(s);
 			}
 
-			if (trk != null) {
-				musicHandle = PlatformAudio.beginPlaybackStatic(trk, 1.0f, 1.0f, false);
-				return true;
-			}
-
-			return false;
-		} else {
-			return false;
+			PlatformAudio.beginPlayback(trk, var3.x + 0.5f, var3.y + 0.5f, var3.z + 0.5f, soundType.getVolume(),
+					soundType.getPitch(), false);
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
 	}
 
-	public void playSound(String var1, Entity var2) {
-		if(minecraft.options.sound) {
-			SoundType type = SoundType.getSoundType(var1);
-			String sound = null;
-			if (type != null) {
-				sound = SoundPool.getRandomSound(type);
+	public void playSound(String var2, float x, float y, float z) {
+		try {
+			IAudioResource trk;
+			Tile$SoundType soundType = Tile$SoundType.getSoundType(var2);
+			if (var2 != null) {
+				var2 = var2.replace(".", "/");
 			}
-			if (sound == null) {
-				System.out.println("Missing sound: " + var1);
-				return;
-			}
-			IAudioResource trk = sounds.get(sound);
-
-			if (trk == null) {
+			String s = "/sounds/blocks/" + Tile$SoundType.mapSound(var2) + (this.random.nextInt(4) + 1) + ".ogg";
+			if (!sounds.containsKey(s)) {
 				if (EagRuntime.getPlatformType() != EnumPlatformType.DESKTOP) {
-					trk = PlatformAudio.loadAudioDataNew(sound, true, browserResourceLoader);
+					trk = PlatformAudio.loadAudioDataNew(s, true, browserResourceLoader);
 				} else {
-					trk = PlatformAudio.loadAudioData(sound, true);
+					trk = PlatformAudio.loadAudioData(s, true);
 				}
-
 				if (trk != null) {
-					this.sounds.put(sound, trk);
+					sounds.put(s, trk);
 				}
+			} else {
+				trk = sounds.get(s);
 			}
 
-			if (trk != null) {
-				PlatformAudio.beginPlayback(trk, var2.x, var2.y, var2.z, type.getVolume(), type.getPitch(), false);
-			}
+			PlatformAudio.beginPlayback(trk, x, y, z, soundType.getVolume(), soundType.getPitch(), false);
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
 	}
 
-	public void playSound(String var1, float x, float y, float z) {
-		if(minecraft.options.sound) {
-			SoundType type = SoundType.getSoundType(var1);
-			String sound = null;
-			if (type != null) {
-				sound = SoundPool.getRandomSound(type);
+	public boolean playMusic(String var2) {
+		try {
+			IAudioResource trk;
+			int i = this.random.nextInt(3) + 1;
+			while (i == lastSongID) {
+				i = this.random.nextInt(3) + 1;
 			}
-			if (sound == null) {
-				System.out.println("Missing sound: " + var1);
-				return;
-			}
-			IAudioResource trk = sounds.get(sound);
-	
-			if (trk == null) {
+			lastSongID = i;
+			String s = "/sounds/music/" + var2 + i + ".ogg";
+			if (!music.containsKey(s)) {
 				if (EagRuntime.getPlatformType() != EnumPlatformType.DESKTOP) {
-					trk = PlatformAudio.loadAudioDataNew(sound, true, browserResourceLoader);
+					trk = PlatformAudio.loadAudioDataNew(s, false, browserResourceLoader);
 				} else {
-					trk = PlatformAudio.loadAudioData(sound, true);
+					trk = PlatformAudio.loadAudioData(s, false);
 				}
-	
 				if (trk != null) {
-					this.sounds.put(sound, trk);
+					music.put(s, trk);
 				}
+			} else {
+				trk = music.get(s);
 			}
-	
-			if (trk != null) {
-				PlatformAudio.beginPlayback(trk, x, y, z, type.getVolume(), type.getPitch(), false);
-			}
+
+			musicHandle = PlatformAudio.beginPlaybackStatic(trk, 1.0f, 1.0f, false);
+			return true;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return false;
 		}
 	}
 
@@ -129,28 +115,29 @@ public final class SoundManager {
 			try {
 				float var9 = var1.xRotO + (var1.xRot - var1.xRotO) * var2;
 				float var3 = var1.yRotO + (var1.yRot - var1.yRotO) * var2;
-				double var4 = var1.xo + (var1.x - var1.xo) * (double)var2;
-				double var6 = var1.yo + (var1.y - var1.yo) * (double)var2;
-				double var8 = var1.zo + (var1.z - var1.zo) * (double)var2;
+				double var4 = var1.xOld + (var1.x - var1.xOld) * (double) var2;
+				double var6 = var1.yOld + (var1.y - var1.yOld) * (double) var2;
+				double var8 = var1.zOld + (var1.z - var1.zOld) * (double) var2;
 				PlatformAudio.setListener((float) var4, (float) var6, (float) var8, (float) var9, (float) var3);
 			} catch (Exception e) {
+				// eaglercraft 1.5.2 had Infinity/NaN crashes for this function which
+				// couldn't be resolved via if statement checks in the above variables
 			}
 		}
 	}
-	
-	public void settingsChanged() {
-		if (musicHandle != null && !musicHandle.shouldFree() && !minecraft.options.music) {
-			musicHandle.end();
-			this.lastMusic = EagRuntime.steadyTimeMillis();
-		}
-	}
 
-	
-	private final IAudioCacheLoader browserResourceLoader = fileName -> {
+	private final IAudioCacheLoader browserResourceLoader = filename -> {
 		try {
-			return EaglerInputStream.inputStreamToBytesQuiet(EagRuntime.getRequiredResourceStream(fileName));
+			return EaglerInputStream.inputStreamToBytesQuiet(EagRuntime.getRequiredResourceStream(filename));
 		} catch (Throwable t) {
 			return null;
 		}
 	};
+
+	public void settingsChanged() {
+		if (musicHandle != null && !musicHandle.shouldFree() && !Minecraft.getMinecraft().settings.music) {
+			musicHandle.end();
+			this.lastMusic = EagRuntime.steadyTimeMillis();
+		}
+	}
 }

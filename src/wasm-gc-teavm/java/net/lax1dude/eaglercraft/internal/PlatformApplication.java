@@ -24,7 +24,6 @@ import java.util.Date;
 
 import org.teavm.interop.Import;
 import org.teavm.jso.JSBody;
-import org.teavm.jso.JSFunctor;
 import org.teavm.jso.JSObject;
 import org.teavm.jso.JSProperty;
 import org.teavm.jso.browser.Storage;
@@ -44,7 +43,6 @@ import net.lax1dude.eaglercraft.internal.buffer.MemoryStack;
 import net.lax1dude.eaglercraft.internal.buffer.WASMGCBufferAllocator;
 import net.lax1dude.eaglercraft.internal.buffer.WASMGCDirectArrayConverter;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.BetterJSStringConverter;
-import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.ClientMain;
 import net.lax1dude.eaglercraft.internal.wasm_gc_teavm.TeaVMUtils;
 
 public class PlatformApplication {
@@ -176,23 +174,7 @@ public class PlatformApplication {
 		}
 	}
 
-	public static void setResetSettingsCallbackWASM() {
-		setResetSettingsCallbackWASM0().call(ClientMain::resetSettings);
-	}
-
-	@JSFunctor
-	private static interface JSWASMResetSettingsCallback extends JSObject {
-		void callback();
-	}
-
-	private static interface JSWASMResetSettingsCallbackInterface extends JSObject {
-		void call(JSWASMResetSettingsCallback callback);
-	}
-
-	@Import(module = "platformApplication", name = "setResetSettingsCallback")
-	private static native JSWASMResetSettingsCallbackInterface setResetSettingsCallbackWASM0();
-
-	public static void displayFileChooser(String mime, String ext) {
+	public static final void displayFileChooser(String mime, String ext) {
 		displayFileChooser0(BetterJSStringConverter.stringToJS(mime), BetterJSStringConverter.stringToJS(ext));
 	}
 
@@ -237,6 +219,29 @@ public class PlatformApplication {
 
 	@JSBody(params = { "doc", "str" }, script = "doc.write(str);doc.close();")
 	private static native void documentWrite(HTMLDocument doc, String str);
+
+	public static void openCreditsPopup(String text) {
+		Window currentWin = PlatformRuntime.win;
+		
+		int w = (int)(850 * PlatformInput.getDPI());
+		int h = (int)(700 * PlatformInput.getDPI());
+		
+		int x = (currentWin.getScreen().getWidth() - w) / 2;
+		int y = (currentWin.getScreen().getHeight() - h) / 2;
+		
+		Window newWin = Window.current().open("", "_blank", "top=" + y + ",left=" + x + ",width=" + w + ",height=" + h + ",menubar=0,status=0,titlebar=0,toolbar=0");
+		if(newWin == null || TeaVMUtils.isNotTruthy(newWin)) {
+			Window.alert("ERROR: Popup blocked!\n\nPlease make sure you have popups enabled for this site!");
+			return;
+		}
+
+		newWin.focus();
+		documentWrite(newWin.getDocument(), "<!DOCTYPE html><html><head><meta charset=\"UTF-8\" />"
+				+ "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" /><title>EaglercraftX 1.8 Credits</title>"
+				+ "<link type=\"image/png\" rel=\"shortcut icon\" href=\""
+				+ BetterJSStringConverter.stringFromJS(PlatformApplication.faviconURLTeaVM()) + "\" />"
+				+ "</head><body><pre style=\"font:15px Consolas,monospace;\">" + text + "</pre></body></html>");
+	}
 
 	public static void downloadFileWithName(String str, byte[] dat) {
 		MemoryStack.push();

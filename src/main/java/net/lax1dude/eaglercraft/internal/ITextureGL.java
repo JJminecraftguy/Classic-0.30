@@ -19,14 +19,6 @@ package net.lax1dude.eaglercraft.internal;
 public interface ITextureGL extends IObjectGL {
 
 	void setCacheSize(int w, int h);
-	
-	void setNearest(boolean nearest);
-	
-	void setAnisotropic(boolean anisotropic);
-	
-	boolean isNearest();
-	
-	boolean isAnisotropic();
 
 	int getWidth();
 

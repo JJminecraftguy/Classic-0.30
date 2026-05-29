@@ -39,7 +39,7 @@ public class PlatformInput {
 	private static Window win = null;
 	private static HTMLElement parent = null;
 	private static HTMLCanvasElement canvas = null;
-
+	
 	private static int windowWidth = -1;
 	private static int windowHeight = -1;
 	private static float windowDPI = 1.0f;
@@ -85,10 +85,9 @@ public class PlatformInput {
 
 	static boolean vsync = true;
 	static boolean vsyncSupport = false;
-	static boolean finish = true;
 
 	private static Map<String, LegacyKeycodeTranslator.LegacyKeycode> keyCodeTranslatorMap = null;
-
+	
 	static void initContext(Window window, HTMLElement parent_, HTMLCanvasElement canvaz) {
 		win = window;
 		parent = parent_;
@@ -98,7 +97,6 @@ public class PlatformInput {
 		fullscreenSupported = supportsFullscreen0();
 		vsyncSupport = isVSyncSupported0();
 		WASMGCClientConfigAdapter conf = (WASMGCClientConfigAdapter)PlatformRuntime.getClientConfigAdapter();
-		finish = conf.isFinishOnSwapTeaVM();
 		useVisualViewport = conf.isUseVisualViewportTeaVM() && isVisualViewport0();
 		lastWasResizedWindowWidth = -2;
 		lastWasResizedWindowHeight = -2;
@@ -484,7 +482,7 @@ public class PlatformInput {
 			WebGLBackBuffer.flipBuffer(windowWidth, windowHeight);
 		}
 		
-		updatePlatformAndSleep(fpsLimit, vsync && vsyncSupport, finish);
+		updatePlatformAndSleep(fpsLimit, vsync && vsyncSupport);// && vsync
 		PlatformRuntime.pollJSEventsAfterSleep();
 	}
 
@@ -492,7 +490,7 @@ public class PlatformInput {
 	private static native void updateCanvasSize(int width, int height);
 
 	@Import(module = "platformInput", name = "updatePlatformAndSleep")
-	private static native void updatePlatformAndSleep(int fpsLimit, boolean vsync, boolean finish);
+	private static native void updatePlatformAndSleep(int fpsLimit, boolean vsync);
 
 	public static boolean isVSyncSupported() {
 		return vsyncSupport;
@@ -773,7 +771,7 @@ public class PlatformInput {
 		functionKeyModifier = key;
 	}
 
-	public static void clearEventBuffers() {
+	public static void clearEvenBuffers() {
 		mouseEvents.clear();
 		keyEvents.clear();
 	}

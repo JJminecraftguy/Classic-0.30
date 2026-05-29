@@ -1,18 +1,13 @@
 package net.lax1dude.eaglercraft.internal;
 
-import java.io.File;
-
 import javax.swing.UIManager;
 import javax.swing.UnsupportedLookAndFeelException;
 
 import com.mojang.minecraft.Minecraft;
-import com.mojang.minecraft.User;
 
+import net.lax1dude.eaglercraft.Display;
 import net.lax1dude.eaglercraft.EagRuntime;
 import net.lax1dude.eaglercraft.EagUtils;
-import net.lax1dude.eaglercraft.socket.AddressResolver;
-import net.lax1dude.eaglercraft.socket.AddressResolver.ServerInfo;
-import net.peytonsound.ResourceLoader;
 
 /**
  * Copyright (c) 2022-2023 lax1dude. All Rights Reserved.
@@ -67,48 +62,8 @@ public class LWJGLEntryPoint {
 
 		EagRuntime.create();
 
-		Minecraft minecraft = new Minecraft(854, 480, false);
+		new Minecraft(Display.getWidth(), Display.getHeight(), false).run();
 
-		ServerInfo serverInfo = null;
-		String username = null;
-
-		for (int i = 0; i < args.length; i++) {
-			if (args[i].equalsIgnoreCase("--server") && i + 1 < args.length) {
-				serverInfo = AddressResolver.resolveURI(args[i + 1]);
-			} else if (args[i].equalsIgnoreCase("--username") && i + 1 < args.length) {
-				username = args[i + 1];
-			}
-		}
-		if(serverInfo != null) {
-			if (username != null) {
-				minecraft.user = new User(username, "");
-				System.out.println("Using username: " + username);
-			}
-	
-			if (serverInfo.ip != null) {
-				minecraft.setServer(serverInfo.ip);
-				System.out.println("Connecting to server " + serverInfo.ip);
-			}
-		}
-		
-		File[] f = new File("resources").listFiles();
-		
-		for(File f1 : f) {
-			loadResource(f1);
-		}
-		
-		(new Thread(minecraft)).run();
-
-	}
-	
-	private static void loadResource(File file) {
-		if(file.isDirectory()) {
-			for(File f : file.listFiles()) {
-				loadResource(f);
-			}
-		} else {
-			ResourceLoader.onResourceLoad(file.getPath().replace("\\", "/"));
-		}
 	}
 
 	private static void getPlatformOptionsFromArgs(String[] args) {
